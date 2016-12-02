@@ -1,11 +1,11 @@
 {
   "name": "node-red-contrib-dynamorse-http-io",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Dynamorse http IO nodes for Node-RED",
   "author": "Streampunk Media Ltd",
   "license": "Apache-2.0",
   "keywords": [
-    "Node-RED"
+    "node-red"
   ],
   "dependencies": {
     "body-parser": "^1.15.0",
