@@ -1,4 +1,4 @@
-/* Copyright 2016 Streampunk Media Ltd.
+/* Copyright 2017 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
   limitations under the License.
 */
 
-var getFirstRealIP4Interface = function() {
+var getFirstRealIP4Interface = () => {
   var ifaces = require('os').networkInterfaces();
   var bumpy =  Object.keys(ifaces).map(function (iname) {
     var iface = ifaces[iname]; return iface.map(function (x) {
@@ -21,10 +21,10 @@ var getFirstRealIP4Interface = function() {
     });
   });
   var flatter = Array.prototype.concat.apply([], bumpy);
-  return flatter.find(function (x) { return x.family === 'IPv4' && !x.internal; });
+  return flatter.find(x => x.family === 'IPv4' && !x.internal);
 }
 
-var isMulticast = function (addr) {
+var isMulticast = addr => {
   var check = addr.match(/([0-2]?[0-9]?[0-9])\./);
   if (check) {
     return +check[1] >= 224 && +check[1] <= 239;

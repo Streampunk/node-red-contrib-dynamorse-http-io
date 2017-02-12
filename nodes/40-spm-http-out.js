@@ -1,4 +1,4 @@
-/* Copyright 2016 Streampunk Media Ltd.
+/* Copyright 2017 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ module.exports = function (RED) {
     if (!this.context().global.get('updated'))
       return this.log('Waiting for global context to be updated.');
     var srcFlow = null;
-    this.on('error', function (err) {
+    this.on('error', err => {
       node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`)
     });
     var protocol = (config.protocol === 'HTTP') ? http : https;
@@ -67,10 +67,10 @@ module.exports = function (RED) {
     var ledger = this.context().global.get('ledger');
     var nodeAPI = this.context().global.get('nodeAPI');
     var genericID = this.context().global.get('genericID');
-    this.each(function (x, next) {
-      console.log('WHIP', x, started);
+    this.each((x, next) => {
+      console.log('RECD-NEXT', x, started);
       if (started === false) {
-        node.getNMOSFlow(x, function (err, f) {
+        node.getNMOSFlow(x, (err, f) => {
           if (err) return node.warn("Failed to resolve NMOS flow.");
           else {
             flow = f;
@@ -101,7 +101,7 @@ module.exports = function (RED) {
         if (app) {
           server = ((config.protocol === 'HTTP') ?
             protocol.createServer(app) : protocol.createServer(options, app))
-          .listen(config.port, function(err) {
+          .listen(config.port, err => {
             if (err) node.error(`Failed to start arachnid ${config.protocol} server: ${err}`);
             node.log(`Arachnid pull ${config.protocol} server listening on port ${config.port}.`);
           });
@@ -123,20 +123,20 @@ module.exports = function (RED) {
     });
     if (config.mode === 'pull') {
       app = express();
-      app.get(config.path, function (req, res) {
+      app.get(config.path, (req, res) => {
         res.json({
           maxCacheSize : config.cacheSize,
           currentCacheSize : grainCache.length,
           flow_id : (grainCache.length > 0) ? uuid.unparse(grainCache[0].grain.flow_id) : '',
           source_id : (grainCache.length > 0) ? uuid.unparse(grainCache[0].grain.source_id) : '',
           sender_id : (sender) ? sender.id : '',
-          cacheTS : grainCache.map(function (g) {
+          cacheTS : grainCache.map(g => {
             return Grain.prototype.formatTimestamp(g.grain.ptpOrigin);
           }),
           clients : Object.keys(clientCache)
         });
       });
-      app.get(config.path + "/:ts", function (req, res, next) {
+      app.get(config.path + "/:ts", (req, res, next) => {
         var threadNumber = req.headers['arachnid-threadnumber'];
         threadNumber = (isNaN(+threadNumber)) ? 0 : +threadNumber;
         console.log('*** Received HTTP GET', req.params.ts, 'thread', threadNumber);
@@ -153,7 +153,7 @@ module.exports = function (RED) {
           console.log('<-> Range checking, across the universe', rangeCheck,
             msOriginTs(grainCache[0].grain),
             msOriginTs(grainCache[grainCache.length - 1].grain));
-          g = grainCache.find(function (y) {
+          g = grainCache.find(y => {
             var grCheck = msOriginTs(y.grain);
             return (rangeCheck >= grCheck - variation) &&
               (rangeCheck <= grCheck + variation);
@@ -240,7 +240,7 @@ module.exports = function (RED) {
           if (written < data.length) {
             res.once('drain', write);
           } else {
-            res.end(function() {
+            res.end(() => {
               node.log(`Sending grain took ${(function (a) {
                 return a[0]*1000 + a[1]/1000000; })(process.hrtime(startSend))}ms ` +
                 `in ${count} writes chunked into ${drains} parts.`);
@@ -250,7 +250,7 @@ module.exports = function (RED) {
         }
       });
 
-      app.use(function (err, req, res, next) {
+      app.use((err, req, res, next) => {
         if (err.status) {
           res.status(err.status).json({
             code: err.status,
@@ -266,7 +266,7 @@ module.exports = function (RED) {
         }
       });
 
-      app.use(function (req, res, next) {
+      app.use((req, res, next) => {
         res.status(404).json({
           code : 404,
           error : `Could not find the requested resource '${req.path}'.`,
@@ -279,14 +279,14 @@ module.exports = function (RED) {
 
     this.clearDown = null;
     if (this.clearDown === null) {
-      this.clearDown = setInterval(function () {
+      this.clearDown = setInterval(() => {
         var toDelete = [];
         var now = Date.now();
-        Object.keys(clientCache).forEach(function (k) {
+        Object.keys(clientCache).forEach(k => {
           if (clientCache[k].items && now - clientCache[k].created > 5000)
             toDelete.push(k);
         });
-        toDelete.forEach(function (k) {
+        toDelete.forEach(k => {
           if (config.backpressure === true) {
             node.log(`Clearing items from clientID '${k}' to free related memory.`);
             delete clientCache[k].items;
@@ -298,11 +298,11 @@ module.exports = function (RED) {
       }, 1000);
     };
 
-    this.done(function () {
+    this.done(() => {
       node.log('Closing the app!');
       clearInterval(this.clearDown); this.clearDown = null;
       server.close();
-    }.bind(this));
+    });
   }
   util.inherits(SpmHTTPOut, redioactive.Spout);
   RED.nodes.registerType("spm-http-out", SpmHTTPOut);

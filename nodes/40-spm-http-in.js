@@ -1,4 +1,4 @@
-/* Copyright 2016 Streampunk Media Ltd.
+/* Copyright 2017 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -98,7 +98,7 @@ module.exports = function (RED) {
       var mime = contentType.match(mimeMatch);
       tags = { format : [ mime[1] ], encodingName : [ mime[2] ] };
       var parameters = contentType.match(paramMatch);
-      parameters.forEach(function (p) {
+      parameters.forEach(p => {
          var splitP = p.split('=');
          if (splitP[0] === 'rate') splitP[0] = 'clockRate';
          tags[splitP[0]] = [ splitP[1] ];
@@ -121,18 +121,16 @@ module.exports = function (RED) {
         "urn:x-nmos:format:" + tags.format[0], null, tags,
         pipelinesID, ledger.transports.dash, senderID);
       nodeAPI.putResource(source)
-      .then(function () {
-        return nodeAPI.putResource(flow);
-      }).then(function () {
-        return nodeAPI.putResource(recvr);
-      }).catch(function (err) {
+      .then(() => nodeAPI.putResource(flow))
+      .then(() => nodeAPI.putResource(recvr))
+      .catch(err => {
         node.error(`Unable to register resource : ${err}`);
       });
     };
 
     var keepAliveAgent = new protocol.Agent({keepAlive : true });
     var endCount = 0;
-    var runNext = function (x, push, next) {
+    var runNext = (x, push, next) => {
       var requestTimer = process.hrtime();
       var req = protocol.request({
           rejectUnauthorized: false,
@@ -146,13 +144,13 @@ module.exports = function (RED) {
             'Arachnid-TotalConcurrent': config.parallel,
             'Arachnid-ClientID': clientID
           }},
-          function (res) {
+          res => {
         // console.log('Response received after', process.hrtime(requestTimer));
         var count = 0;
         var position = 0;
         if (res.statusCode === 404) {
           node.warn(`Received not found in thread ${x}, request ${config.path}/${nextRequest[x]} - may be ahead of the game. Retrying.`);
-          setTimeout(function () {
+          setTimeout(() => {
             runNext(x, push, next);
           }, 5);
           return;
@@ -166,16 +164,16 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 200) {
-          var grainData = new Buffer(+res.headers['content-length']);
+          var grainData = Buffer.alloc(+res.headers['content-length']);
           nextRequest[x] = res.headers['arachnid-ptporigin'];
           if (!flow) makeFlowAndSource(res.headers);
-          res.on('data', function (data) {
+          res.on('data', data => {
             data.copy(grainData, position);
             position += data.length;
             count++;
             // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
           });
-          res.on('end', function () {
+          res.on('end', () => {
             console.log('Request time until end', process.hrtime(requestTimer));
             grainData = grainData.slice(0, position);
             nextRequest[x] = res.headers['arachnid-nextbythread'];
@@ -193,14 +191,14 @@ module.exports = function (RED) {
             next();
           });
         };
-        res.on('error', function (e) {
+        res.on('error', e => {
           node.warn(`Received error during streaming of get response on thread ${x}: ${e}.`);
           push(`Received error during streaming of get response on thread ${x}: ${e}.`);
           activeThreads[x] = false;
           next();
         });
       });
-      req.on('error', function (e) {
+      req.on('error', e => {
         // Check for flow !== null is so that shutdown does not happen too early
         if (flow !== null && e.message.indexOf('ECONNREFUSED') >= 0) {
           node.log(`Received connection refused on thread ${x}. Assuming end.`);
@@ -223,23 +221,20 @@ module.exports = function (RED) {
     var grainQueue = { };
     var highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
     // Push every grain older than what is in nextRequest, send grains in order
-    function pushGrains(g, push) {
+    function pushGrains (g, push) {
       grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
       console.log('QQQ', nextRequest);
-      var nextMin = nextRequest.reduce(function (a, b) {
-        return compareVersions(a, b) <= 0 ? a : b;
-      });
-      Object.keys(grainQueue).filter(function (gts) {
-        return compareVersions(gts, nextMin) <= 0;
-      })
+      var nextMin = nextRequest.reduce((a, b) =>
+          compareVersions(a, b) <= 0 ? a : b);
+      Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
       .sort(compareVersions)
-      .forEach(function (gts) {
+      .forEach(gts => {
         if (!config.regenerate) {
           console.log('>>> PUSHING', gts);
           push(null, grainQueue[gts]);
         } else {
           var g = grainQueue[gts];
-          var grainTime = new Buffer(10);
+          var grainTime = Buffer.allocUnsafe(10);
           grainTime.writeUIntBE(this.baseTime[0], 0, 6);
           grainTime.writeUInt32BE(this.baseTime[1], 6);
           var grainDuration = g.getDuration();
@@ -260,7 +255,7 @@ module.exports = function (RED) {
     var nextRequest =
       [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
 
-    dns.lookup(fullURL.hostname, function (err, addr, family) {
+    dns.lookup(fullURL.hostname, (err, addr, family) => {
       if (err) return this.preFlightError(`Unable to resolve DNS for ${fullURL.hostname}: ${err}`);
       node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
       fullURL.hostname = addr;
@@ -282,8 +277,8 @@ module.exports = function (RED) {
         //   this.log(`Dynamorse ${config.protocol} server listening on port ${config.port}.`);
         // });
       } else { // config.mode is set to pull
-        this.generator(function (push, next) {
-          setTimeout(function() {
+        this.generator((push, next) => {
+          setTimeout(() => {
             console.log('+++ DEBUG THREADS', activeThreads);
             for ( var i = 0 ; i < activeThreads.length ; i++ ) {
               if (!activeThreads[i]) {
@@ -298,7 +293,7 @@ module.exports = function (RED) {
           }, (flow === null) ? 1000 : 0);
         });
       }
-    }.bind(this));
+    });
 
   }
   util.inherits(SpmHTTPIn, redioactive.Funnel);
