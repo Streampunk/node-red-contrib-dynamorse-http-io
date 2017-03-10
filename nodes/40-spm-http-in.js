@@ -58,7 +58,7 @@ function versionDiffMs (smaller, bigger) {
   return bgMs - smMs;
 }
 
-const mimeMatch = /^\s*(\w+)\/(\w+)/;
+const mimeMatch = /^\s*(\w+)\/([\w\-]+)/;
 const paramMatch = /\b(\w+)=(\S+)\b/g;
 
 module.exports = function (RED) {
