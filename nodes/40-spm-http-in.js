@@ -31,7 +31,7 @@ var maxDrift = 40 * 8;
 
 function extractVersions(v) {
   var m = v.match(/^([0-9]+):([0-9]+)$/);
-  if (m === null) { console.log(v, [Number.MAX_SAFE_INTEGER, 0]); return [Number.MAX_SAFE_INTEGER, 0]; }
+  if (m === null) { return [Number.MAX_SAFE_INTEGER, 0]; }
   return [+m[1], +m[2]];
 }
 
@@ -132,6 +132,7 @@ module.exports = function (RED) {
     var endCount = 0;
     var runNext = (x, push, next) => {
       var requestTimer = process.hrtime();
+      console.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
       var req = protocol.request({
           rejectUnauthorized: false,
           hostname: fullURL.hostname,
@@ -174,7 +175,7 @@ module.exports = function (RED) {
             // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
           });
           res.on('end', () => {
-            console.log('Request time until end', process.hrtime(requestTimer));
+            console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
             grainData = grainData.slice(0, position);
             nextRequest[x] = res.headers['arachnid-nextbythread'];
             var ptpOrigin = res.headers['arachnid-ptporigin'];
@@ -223,9 +224,11 @@ module.exports = function (RED) {
     // Push every grain older than what is in nextRequest, send grains in order
     function pushGrains (g, push) {
       grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
-      console.log('QQQ', nextRequest);
+      console.log('QQQ', nextRequest, 'hwm', highWaterMark);
       var nextMin = nextRequest.reduce((a, b) =>
           compareVersions(a, b) <= 0 ? a : b);
+      console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
+
       Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
       .sort(compareVersions)
       .forEach(gts => {
