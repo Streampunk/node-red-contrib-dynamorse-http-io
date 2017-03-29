@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-dynamorse-http-io",
-  "version": "0.0.5",
+  "version": "0.0.8",
   "description": "Dynamorse http IO nodes for Node-RED",
   "author": "Streampunk Media Ltd",
   "license": "Apache-2.0",
@@ -24,7 +24,6 @@
       "spm-http-out": "nodes/40-spm-http-out.js"
     }
   },
-  "files" : [ "certs" ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Streampunk/node-red-contrib-dynamorse-http-io.git"

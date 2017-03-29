@@ -52,8 +52,8 @@ module.exports = function (RED) {
     });
     var protocol = (config.protocol === 'HTTP') ? http : https;
     var options = (config.protocol === 'HTTP') ? {} : {
-      key : fs.readFileSync(__dirname + '/../../../certs/dynamorse-key.pem'),
-      cert : fs.readFileSync(__dirname + '/../../../certs/dynamorse-cert.pem')
+      key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
+      cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
     };
     var grainCache = [];
     var clientCache = {};
