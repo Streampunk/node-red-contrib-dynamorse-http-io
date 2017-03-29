@@ -24,6 +24,7 @@
       "spm-http-out": "nodes/40-spm-http-out.js"
     }
   },
+  "files" : [ "certs" ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Streampunk/node-red-contrib-dynamorse-http-io.git"
