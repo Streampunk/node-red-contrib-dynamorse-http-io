@@ -151,7 +151,7 @@ module.exports = function (RED) {
         var position = 0;
         if (res.statusCode === 302) {
           var location = res.headers['location'];
-          node.info(`Being redirected to ${location}.`);
+          node.log(`Being redirected to ${location}.`);
           location = '/' + location;
           var lm = location.match(/.*\/([0-9]+):([0-9]{9})$/);
           if (lm && lm.length >= 3) {

@@ -67,8 +67,10 @@ module.exports = function (RED) {
     var ledger = this.context().global.get('ledger');
     var nodeAPI = this.context().global.get('nodeAPI');
     var genericID = this.context().global.get('genericID');
+    var begin = null;
+    var grainCount = 0;
     this.each((x, next) => {
-      // console.log('RECD-NEXT', x, started);
+      this.log('RECD-NEXT', x, started);
       if (started === false) {
         node.getNMOSFlow(x, (err, f) => {
           if (err) return node.warn("Failed to resolve NMOS flow.");
@@ -107,6 +109,7 @@ module.exports = function (RED) {
           });
         }
         for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
+        begin = process.hrtime();
         started = true;
       };
       if (Grain.isGrain(x)) {
@@ -115,7 +118,13 @@ module.exports = function (RED) {
         if (grainCache.length > config.cacheSize) {
           grainCache = grainCache.slice(grainCache.length - config.cacheSize);
         }
-        if (config.backpressure === false) setTimeout(next, config.timeout); // TODO accurate timeout
+        if (config.backpressure === false) {
+          grainCount++;
+          var diffTime = process.hrtime(begin);
+          var diff = ((grainCount * config.timeout) -
+              (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
+          setTimeout(next, diff);
+        }
       } else {
         node.warn(`HTTP out received something that is not a grain: ${x}`);
         next();
@@ -123,7 +132,7 @@ module.exports = function (RED) {
     });
     if (config.mode === 'pull') {
       app = express();
-      app.use(bp.raw({ limit : 6000000 }));
+      app.use(bodyParser.raw({ limit : 6000000 }));
 
       app.get(config.path, (req, res) => {
         res.json({
