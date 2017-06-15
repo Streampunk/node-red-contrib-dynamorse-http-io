@@ -122,7 +122,7 @@ module.exports = function (RED) {
       recvr = new ledger.Receiver(null, null, localName, localDescription,
         "urn:x-nmos:format:" + tags.format[0], null, tags,
         pipelinesID, ledger.transports.dash, senderID);
-      nodeAPI.putResource(source)
+      return nodeAPI.putResource(source)
       .then(() => nodeAPI.putResource(flow))
       .then(() => nodeAPI.putResource(recvr))
       .catch(err => {
@@ -183,39 +183,40 @@ module.exports = function (RED) {
         if (res.statusCode === 200) {
           var grainData = Buffer.alloc(+res.headers['content-length']);
           nextRequest[x] = res.headers['arachnid-ptporigin'];
-          if (!flow) makeFlowAndSource(res.headers);
-          res.on('data', data => {
-            data.copy(grainData, position);
-            position += data.length;
-            count++;
-            // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
-          });
-          res.on('end', () => {
-            // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
-            grainData = grainData.slice(0, position);
-            nextRequest[x] = res.headers['arachnid-nextbythread'];
-            var ptpOrigin = res.headers['arachnid-ptporigin'];
-            var ptpSync = res.headers['arachnid-ptpsync'];
-            var duration = res.headers['arachnid-grainduration'];
-            // TODO fix up regeneration
-            var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-            var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-            var tc = res.headers['arachnid-timecode'];
-            var g = new Grain([ grainData ], ptpSync, ptpOrigin, tc, gFlowID,
-              gSourceID, duration); // regenerate time as emitted
+          if (!flow) makeFlowAndSource(res.headers).then(() => {
+            res.on('data', data => {
+              data.copy(grainData, position);
+              position += data.length;
+              count++;
+              // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
+            });
+            res.on('end', () => {
+              // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+              grainData = grainData.slice(0, position);
+              nextRequest[x] = res.headers['arachnid-nextbythread'];
+              var ptpOrigin = res.headers['arachnid-ptporigin'];
+              var ptpSync = res.headers['arachnid-ptpsync'];
+              var duration = res.headers['arachnid-grainduration'];
+              // TODO fix up regeneration
+              var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+              var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+              var tc = res.headers['arachnid-timecode'];
+              var g = new Grain([ grainData ], ptpSync, ptpOrigin, tc, gFlowID,
+                gSourceID, duration); // regenerate time as emitted
 
-            var durArray = g.getDuration();
-            var originArray = g.getOriginTimestamp();
-            originArray[1] = originArray[1] +
-              totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
-            if (originArray[1] >= 1000000000)
-              originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
-            var nanos = (originArray[1]%1000000000).toString();
-            nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
+              var durArray = g.getDuration();
+              var originArray = g.getOriginTimestamp();
+              originArray[1] = originArray[1] +
+                totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
+              if (originArray[1] >= 1000000000)
+                originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
+              var nanos = (originArray[1]%1000000000).toString();
+              nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
 
-            pushGrains(g, push);
-            activeThreads[x] = false;
-            next();
+              pushGrains(g, push);
+              activeThreads[x] = false;
+              next();
+            });
           });
         };
         res.on('error', e => {

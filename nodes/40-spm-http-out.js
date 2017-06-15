@@ -203,8 +203,8 @@ module.exports = function (RED) {
           if (itemIndex < 0) {
             return next(statusError(404, 'Insufficient grains in cache to provide that number of parallel threads.'));
           }
-          g = items[items.length + ts - 1];
-          return res.redirect(Grain.prototype.formatTimestamp(g.ptpOrigin));
+          g = items[itemIndex];
+          return res.redirect(Grain.prototype.formatTimestamp(g.grain.ptpOrigin));
         };
         if (clientID)
           res.setHeader('Arachnid-ClientID', clientID);
