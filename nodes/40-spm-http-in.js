@@ -28,6 +28,7 @@ var url = require('url');
 // Maximum drift between high water mark and next request in ms
 // TODO calculate this from grain rate
 var maxDrift = 40 * 8;
+const nineZeros = '000000000';
 
 function extractVersions(v) {
   var m = v.match(/^([0-9]+):([0-9]+)$/);
@@ -92,6 +93,7 @@ module.exports = function (RED) {
     var flowID = uuid.v4();
     var flow = null; var source = null; var recvr = null;
     var tags = {};
+    var totalConcurrent = +config.parallel;
 
     function makeFlowAndSource (headers) {
       var contentType = headers['content-type'];
@@ -132,7 +134,7 @@ module.exports = function (RED) {
     var endCount = 0;
     var runNext = (x, push, next) => {
       var requestTimer = process.hrtime();
-      console.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
+      // console.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
       var req = protocol.request({
           rejectUnauthorized: false,
           hostname: fullURL.hostname,
@@ -141,14 +143,28 @@ module.exports = function (RED) {
           method: 'GET',
           agent: keepAliveAgent,
           headers: {
-            'Arachnid-ThreadNumber': x,
-            'Arachnid-TotalConcurrent': config.parallel,
             'Arachnid-ClientID': clientID
           }},
           res => {
         // console.log('Response received after', process.hrtime(requestTimer));
         var count = 0;
         var position = 0;
+        if (res.statusCode === 302) {
+          var location = res.headers['location'];
+          node.info(`Being redirected to ${location}.`);
+          location = '/' + location;
+          var lm = location.match(/.*\/([0-9]+):([0-9]{9})$/);
+          if (lm && lm.length >= 3) {
+            nextRequest[x] = `${lm[1]}:${lm[2]}`;
+            return setImmediate(() => { runNext(x, push, next); });
+          } else {
+            node.warn(`Received redirect to unrecognisable location ${location.slice(1)}. Retrying.`);
+            setTimeout(() => {
+              runNext(x, push, next);
+            }, 5);
+            return;
+          }
+        }
         if (res.statusCode === 404) {
           node.warn(`Received not found in thread ${x}, request ${config.path}/${nextRequest[x]} - may be ahead of the game. Retrying.`);
           setTimeout(() => {
@@ -157,7 +173,7 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 410) {
-          node.error(`BANG! Cache miss when reading audio stream ${config.path}/${nextRequest[x]} on thread ${x}.`);
+          node.error(`BANG! Cache miss when reading stream ${config.path}/${nextRequest[x]} on thread ${x}.`);
           push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
           nextRequest =
             [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
@@ -175,7 +191,7 @@ module.exports = function (RED) {
             // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
           });
           res.on('end', () => {
-            console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+            // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
             grainData = grainData.slice(0, position);
             nextRequest[x] = res.headers['arachnid-nextbythread'];
             var ptpOrigin = res.headers['arachnid-ptporigin'];
@@ -187,6 +203,16 @@ module.exports = function (RED) {
             var tc = res.headers['arachnid-timecode'];
             var g = new Grain([ grainData ], ptpSync, ptpOrigin, tc, gFlowID,
               gSourceID, duration); // regenerate time as emitted
+
+            var durArray = g.getDuration();
+            var originArray = g.getOriginTimestamp();
+            originArray[1] = originArray[1] +
+              totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
+            if (originArray[1] >= 1000000000)
+              originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
+            var nanos = (originArray[1]%1000000000).toString();
+            nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
+
             pushGrains(g, push);
             activeThreads[x] = false;
             next();
@@ -224,16 +250,16 @@ module.exports = function (RED) {
     // Push every grain older than what is in nextRequest, send grains in order
     function pushGrains (g, push) {
       grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
-      console.log('QQQ', nextRequest, 'hwm', highWaterMark);
+      // console.log('QQQ', nextRequest, 'hwm', highWaterMark);
       var nextMin = nextRequest.reduce((a, b) =>
           compareVersions(a, b) <= 0 ? a : b);
-      console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
+      // console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
 
       Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
       .sort(compareVersions)
       .forEach(gts => {
         if (!config.regenerate) {
-          console.log('>>> PUSHING', gts);
+          // console.log('>>> PUSHING', gts);
           push(null, grainQueue[gts]);
         } else {
           var g = grainQueue[gts];
@@ -282,14 +308,14 @@ module.exports = function (RED) {
       } else { // config.mode is set to pull
         this.generator((push, next) => {
           setTimeout(() => {
-            console.log('+++ DEBUG THREADS', activeThreads);
+            // console.log('+++ DEBUG THREADS', activeThreads);
             for ( var i = 0 ; i < activeThreads.length ; i++ ) {
               if (!activeThreads[i]) {
                 if (versionDiffMs(highWaterMark, nextRequest[i]) < maxDrift) {
                   runNext.call(this, i, push, next);
                   activeThreads[i] = true;
                 } else {
-                  node.error(`Not progressing thread ${i} this time due to a drift of ${versionDiffMs(highWaterMark, nextRequest[i])}.`);
+                  node.warn(`Not progressing thread ${i} this time due to a drift of ${versionDiffMs(highWaterMark, nextRequest[i])}.`);
                 }
               }
             };

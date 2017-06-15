@@ -27,7 +27,7 @@ var Net = require('../util/Net.js');
 const variation = 1; // Grain timing requests may vary +-1ms
 const nineZeros = '000000000';
 
-function statusError(status, message) {
+var statusError = (status, message) => {
   var e = new Error(message);
   e.status = status;
   return e;
@@ -68,7 +68,7 @@ module.exports = function (RED) {
     var nodeAPI = this.context().global.get('nodeAPI');
     var genericID = this.context().global.get('genericID');
     this.each((x, next) => {
-      console.log('RECD-NEXT', x, started);
+      // console.log('RECD-NEXT', x, started);
       if (started === false) {
         node.getNMOSFlow(x, (err, f) => {
           if (err) return node.warn("Failed to resolve NMOS flow.");
@@ -123,6 +123,8 @@ module.exports = function (RED) {
     });
     if (config.mode === 'pull') {
       app = express();
+      app.use(bp.raw({ limit : 6000000 }));
+
       app.get(config.path, (req, res) => {
         res.json({
           maxCacheSize : config.cacheSize,
@@ -137,11 +139,11 @@ module.exports = function (RED) {
         });
       });
       app.get(config.path + "/:ts", (req, res, next) => {
-        var threadNumber = req.headers['arachnid-threadnumber'];
-        threadNumber = (isNaN(+threadNumber)) ? 0 : +threadNumber;
-        console.log('*** Received HTTP GET', req.params.ts, 'thread', threadNumber);
-        var totalConcurrent = req.headers['arachnid-totalconcurrent'];
-        totalConcurrent = (isNaN(+totalConcurrent)) ? 1 : +totalConcurrent;
+        // var threadNumber = req.headers['arachnid-threadnumber'];
+        // threadNumber = (isNaN(+threadNumber)) ? 0 : +threadNumber;
+        // console.log('*** Received HTTP GET', req.params.ts, 'thread', threadNumber);
+        // var totalConcurrent = req.headers['arachnid-totalconcurrent'];
+        // totalConcurrent = (isNaN(+totalConcurrent)) ? 1 : +totalConcurrent;
         var nextGrain = grainCache[grainCache.length - 1].nextFn;
         var clientID = req.headers['arachnid-clientid'];
         var g = null;
@@ -150,9 +152,9 @@ module.exports = function (RED) {
           var secs = +tsMatch[1]|0;
           var nanos = +tsMatch[2]|0;
           var rangeCheck = (secs * 1000) + (nanos / 1000000|0);
-          console.log('<-> Range checking, across the universe', rangeCheck,
-            msOriginTs(grainCache[0].grain),
-            msOriginTs(grainCache[grainCache.length - 1].grain));
+          // console.log('<-> Range checking, across the universe', rangeCheck,
+          //   msOriginTs(grainCache[0].grain),
+          //   msOriginTs(grainCache[grainCache.length - 1].grain));
           g = grainCache.find(y => {
             var grCheck = msOriginTs(y.grain);
             return (rangeCheck >= grCheck - variation) &&
@@ -165,8 +167,8 @@ module.exports = function (RED) {
             if (rangeCheck < msOriginTs(grainCache[0].grain)) {
               return next(statusError(410, 'Request for a grain with a timestamp that lies before the available window.'));
             } else {
-              nextGrain();
-              console.log('!!! Responding not found.');
+              // nextGrain();
+              // console.log('!!! Responding not found.');
               return next(statusError(404, 'Request for a grain that lies beyond those currently available. More have been requested - please try again.'));
             }
           }
@@ -174,14 +176,13 @@ module.exports = function (RED) {
           if (!clientID)
             return next(statusError(400, 'When using relative timings, a client ID header must be provided.'));
           var ts = (req.params.ts) ? +req.params.ts : NaN;
-          threadNumber = totalConcurrent + ts - 1;
-          if (isNaN(ts) || ts > 0 || ts <= -totalConcurrent)
-            return next(statusError(400, `Timestamp must be a number between ${-totalConcurrent + 1} and 0.`));
+          if (isNaN(ts) || ts > 0 || ts <= -6)
+            return next(statusError(400, `Timestamp must be a number between ${-5} and 0.`));
           if (!clientCache[clientID] ||
               Date.now() - clientCache[clientID].created > 5000) { // allow for backpressure restart
             clientCache[clientID] = {
               created : Date.now(),
-              items : grainCache.slice(-totalConcurrent)
+              items : grainCache.slice(-6)
             };
           };
           if (config.backpressure === true && Object.keys(clientCache).length > 1) {
@@ -189,12 +190,13 @@ module.exports = function (RED) {
             return next(statusError(400, `Only one client at a time is possible with back pressure enabled.`));
           }
           var items = clientCache[clientID].items;
+          var itemIndex = items.length + ts - 1;
+          if (itemIndex < 0) {
+            return next(statusError(404, 'Insufficient grains in cache to provide that number of parallel threads.'));
+          }
           g = items[items.length + ts - 1];
-          nextGrain = g.nextFn;
-          g = g.grain;
+          return res.redirect(Grain.prototype.formatTimestamp(g.ptpOrigin));
         };
-        res.setHeader('Arachnid-ThreadNumber', threadNumber);
-        res.setHeader('Arachnid-TotalConcurrent', totalConcurrent);
         if (clientID)
           res.setHeader('Arachnid-ClientID', clientID);
         res.setHeader('Arachnid-PTPOrigin', Grain.prototype.formatTimestamp(g.ptpOrigin));
@@ -215,42 +217,50 @@ module.exports = function (RED) {
         var data = g.buffers[0];
         res.setHeader('Content-Length', data.length);
         // FIXME this will not work without a grain duration
-        var durArray = g.getDuration();
-        var originArray = g.getOriginTimestamp();
+        // var durArray = g.getDuration();
+        // var originArray = g.getOriginTimestamp();
   //      res.setHeader('DEBUG-TS', `${originArray} ${totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0}`);
-        originArray[1] = originArray[1] +
-          totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
-        if (originArray[1] >= 1000000000)
-          originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
-        var nanos = (originArray[1]%1000000000).toString();
-        res.setHeader('Arachnid-NextByThread',
-          `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`);
+        // originArray[1] = originArray[1] +
+        //   totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
+        // if (originArray[1] >= 1000000000)
+        //   originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
+        // var nanos = (originArray[1]%1000000000).toString();
+        // res.setHeader('Arachnid-NextByThread',
+        //   `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`);
         if (req.method === 'HEAD') return res.end();
         var startSend = process.hrtime();
-        var written = 0;
-        var count = 0; var drains = 0;
-        write();
-        function write() {
-          drains++;
-          var ok = true;
-          while (written < data.length && ok) {
-            ok = res.write(data.slice(written, written + 8192));
-            written += 8192; count++;
-          }
-          if (written < data.length) {
-            res.once('drain', write);
-          } else {
-            res.end(() => {
-              node.log(`Sending grain took ${(function (a) {
-                return a[0]*1000 + a[1]/1000000; })(process.hrtime(startSend))}ms ` +
-                `in ${count} writes chunked into ${drains} parts.`);
-              nextGrain();
-            });
-          }
-        }
+        res.send(data);
+        res.on('end', () => {
+        //node.log(`Sending grain took ${(function (a) {
+         //         return a[0]*1000 + a[1]/1000000; })(process.hrtime(startSend))}ms ` +
+         //         `in ${count} writes chunked into ${drains} parts.`);
+          nextGrain();
+        });
+        // var written = 0;
+        // var count = 0; var drains = 0;
+        // write();
+        // function write() {
+        //   drains++;
+        //   var ok = true;
+        //   while (written < data.length && ok) {
+        //     ok = res.write(data.slice(written, written + 8192));
+        //     written += 8192; count++;
+        //   }
+        //   if (written < data.length) {
+        //     res.once('drain', write);
+        //   } else {
+        //     res.end(() => {
+        //       node.log(`Sending grain took ${(function (a) {
+        //         return a[0]*1000 + a[1]/1000000; })(process.hrtime(startSend))}ms ` +
+        //         `in ${count} writes chunked into ${drains} parts.`);
+        //       nextGrain();
+        //     });
+        //   }
+        // }
       });
 
       app.use((err, req, res, next) => {
+        node.warn(err);
         if (err.status) {
           res.status(err.status).json({
             code: err.status,
