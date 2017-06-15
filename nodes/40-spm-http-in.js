@@ -134,7 +134,7 @@ module.exports = function (RED) {
     var endCount = 0;
     var runNext = (x, push, next) => {
       var requestTimer = process.hrtime();
-      // console.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
+    //  this.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
       var req = protocol.request({
           rejectUnauthorized: false,
           hostname: fullURL.hostname,
@@ -183,7 +183,8 @@ module.exports = function (RED) {
         if (res.statusCode === 200) {
           var grainData = Buffer.alloc(+res.headers['content-length']);
           nextRequest[x] = res.headers['arachnid-ptporigin'];
-          if (!flow) makeFlowAndSource(res.headers).then(() => {
+          var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(res.headers);
+          flowPromise.then(() => {
             res.on('data', data => {
               data.copy(grainData, position);
               position += data.length;

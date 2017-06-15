@@ -107,6 +107,7 @@ module.exports = function (RED) {
             if (err) node.error(`Failed to start arachnid ${config.protocol} server: ${err}`);
             node.log(`Arachnid pull ${config.protocol} server listening on port ${config.port}.`);
           });
+          server.on('error', this.warn);
         }
         for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
         begin = process.hrtime();
@@ -132,7 +133,7 @@ module.exports = function (RED) {
     });
     if (config.mode === 'pull') {
       app = express();
-      app.use(bodyParser.raw({ limit : 6000000 }));
+      // app.use(bodyParser.raw({ limit : 6000000 }));
 
       app.get(config.path, (req, res) => {
         res.json({
@@ -153,6 +154,7 @@ module.exports = function (RED) {
         // console.log('*** Received HTTP GET', req.params.ts, 'thread', threadNumber);
         // var totalConcurrent = req.headers['arachnid-totalconcurrent'];
         // totalConcurrent = (isNaN(+totalConcurrent)) ? 1 : +totalConcurrent;
+        this.log(`Received request for ${req.params.ts}.`);
         var nextGrain = grainCache[grainCache.length - 1].nextFn;
         var clientID = req.headers['arachnid-clientid'];
         var g = null;
@@ -169,6 +171,7 @@ module.exports = function (RED) {
             return (rangeCheck >= grCheck - variation) &&
               (rangeCheck <= grCheck + variation);
           });
+          // this.log(`Selected grain ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}`);
           if (g) {
             nextGrain = g.nextFn;
             g = g.grain;
@@ -178,7 +181,8 @@ module.exports = function (RED) {
             } else {
               // nextGrain();
               // console.log('!!! Responding not found.');
-              return next(statusError(404, 'Request for a grain that lies beyond those currently available. More have been requested - please try again.'));
+              this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
+              return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
             }
           }
         } else {
@@ -204,8 +208,10 @@ module.exports = function (RED) {
             return next(statusError(404, 'Insufficient grains in cache to provide that number of parallel threads.'));
           }
           g = items[itemIndex];
+        //  this.log(`Redirecting ${ts} to ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}.`);
           return res.redirect(Grain.prototype.formatTimestamp(g.grain.ptpOrigin));
         };
+        // this.log('Got to b4 setting headers.');
         if (clientID)
           res.setHeader('Arachnid-ClientID', clientID);
         res.setHeader('Arachnid-PTPOrigin', Grain.prototype.formatTimestamp(g.ptpOrigin));
@@ -237,14 +243,12 @@ module.exports = function (RED) {
         // res.setHeader('Arachnid-NextByThread',
         //   `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`);
         if (req.method === 'HEAD') return res.end();
+      //  this.log(`Got to b4 send. Data length ${data.length}`);
+
         var startSend = process.hrtime();
         res.send(data);
-        res.on('end', () => {
-        //node.log(`Sending grain took ${(function (a) {
-         //         return a[0]*1000 + a[1]/1000000; })(process.hrtime(startSend))}ms ` +
-         //         `in ${count} writes chunked into ${drains} parts.`);
-          nextGrain();
-        });
+        nextGrain();
+
         // var written = 0;
         // var count = 0; var drains = 0;
         // write();
