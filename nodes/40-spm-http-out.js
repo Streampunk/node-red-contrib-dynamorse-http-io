@@ -121,7 +121,7 @@ module.exports = function (RED) {
         if (config.backpressure === false) {
           grainCount++;
           var diffTime = process.hrtime(begin);
-          var diff = ((grainCount * config.timeout) -
+          var diff = (grainCount * config.timeout) -
               (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
           setTimeout(next, diff);
         }
