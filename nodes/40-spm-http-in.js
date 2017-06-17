@@ -305,7 +305,8 @@ module.exports = function (RED) {
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
       this.lowWaterMark = null;
-      var flowPromise = Promise.resolve();
+      var resolver = null;
+      var flowPromise = new Promise((f, r) => { resovler = f; });
       var started = false;
       var app = express();
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
@@ -322,7 +323,7 @@ module.exports = function (RED) {
         }
         this.receiveQueue[req.params.ts] = { req: req, res: res };
         if (started === false) {
-          flowPromise = flowPromise.then(() => makeFlowAndSource(req.headers));
+          resolver(makeFlowAndSource(req.headers));
           started = true;
         };
       });
