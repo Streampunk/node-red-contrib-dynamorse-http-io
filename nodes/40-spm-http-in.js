@@ -323,7 +323,7 @@ module.exports = function (RED) {
 
       this.generator((push, next) => {
         var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(req.headers);
-        flowPromise.then(() =>
+        flowPromise.then(() => {
           Object.keys(this.receiveQueue)
           .sort(compareVersions)
           .slice(0, 1)
