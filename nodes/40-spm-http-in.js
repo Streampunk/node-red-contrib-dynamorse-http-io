@@ -100,6 +100,7 @@ module.exports = function (RED) {
     var flow = null; var source = null; var recvr = null;
     var tags = {};
     var totalConcurrent = +config.parallel;
+    var ended = false;
 
     function makeFlowAndSource (headers) {
       var contentType = headers['content-type'];
@@ -191,6 +192,8 @@ module.exports = function (RED) {
           node.log('Source stream has ended - thread ${x}.');
           endTimeout = (endTimeout) ? endTimeout :
             setTimeout(() => { push(null, redioactive.end); }, 1000);
+          activeThreads[x] = false;
+          ended = true;
           return;
         }
         if (res.statusCode === 200) {
@@ -220,7 +223,7 @@ module.exports = function (RED) {
 
               var durArray = g.getDuration();
               var originArray = g.getOriginTimestamp();
-              originArray[1] = originArray[1] +
+              originArray [1] = originArray[1] +
                 totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
               if (originArray[1] >= 1000000000)
                 originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
@@ -395,19 +398,21 @@ module.exports = function (RED) {
         node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
         fullURL.hostname = addr;
         this.generator((push, next) => {
-          setTimeout(() => {
-            // console.log('+++ DEBUG THREADS', activeThreads);
-            for ( var i = 0 ; i < activeThreads.length ; i++ ) {
-              if (!activeThreads[i]) {
-                if (versionDiffMs(highWaterMark, nextRequest[i]) < maxDrift) {
-                  runNext.call(this, i, push, next);
-                  activeThreads[i] = true;
-                } else {
-                  node.warn(`Not progressing thread ${i} this time due to a drift of ${versionDiffMs(highWaterMark, nextRequest[i])}.`);
+          if (!ended) {
+            setTimeout(() => {
+              // console.log('+++ DEBUG THREADS', activeThreads);
+              for ( var i = 0 ; i < activeThreads.length ; i++ ) {
+                if (!activeThreads[i]) {
+                  if (versionDiffMs(highWaterMark, nextRequest[i]) < maxDrift) {
+                    runNext.call(this, i, push, next);
+                    activeThreads[i] = true;
+                  } else {
+                    node.warn(`Not progressing thread ${i} this time due to a drift of ${versionDiffMs(highWaterMark, nextRequest[i])}.`);
+                  }
                 }
-              }
-            };
-          }, (flow === null) ? 1000 : 0);
+              };
+            }, (flow === null) ? 1000 : 0);
+          }
         });
       });
     }
