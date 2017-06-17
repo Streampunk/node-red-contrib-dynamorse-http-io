@@ -306,7 +306,7 @@ module.exports = function (RED) {
       this.receiveQueue = {};
       this.lowWaterMark = null;
       var resolver = null;
-      var flowPromise = new Promise((f, r) => { resovler = f; });
+      var flowPromise = new Promise((f, r) => { resolver = f; });
       var started = false;
       var app = express();
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
