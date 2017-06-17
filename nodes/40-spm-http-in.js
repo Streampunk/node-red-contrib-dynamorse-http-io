@@ -312,6 +312,7 @@ module.exports = function (RED) {
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
       app.put(config.path + "/:ts", (req, res, next) => {
+        this.log(`Received request ${req.path}.`);
         if (Object.keys(this.receiveQueue).length >= config.cacheSize) {
           return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
         }
@@ -325,11 +326,14 @@ module.exports = function (RED) {
         if (started === false) {
           resolver(makeFlowAndSource(req.headers));
           started = true;
+        } else {
+          resolver();
         };
       });
 
       this.generator((push, next) => {
         flowPromise = flowPromise.then(() => {
+          this.log('Calling generator.');
           Object.keys(this.receiveQueue)
           .sort(compareVersions)
           .slice(0, 1)
@@ -345,28 +349,27 @@ module.exports = function (RED) {
             });
             req.on('end', () => {
               var joined = Buffer.concat(grainData, position);
-              flowPromise.then(() => {
-                var ptpOrigin = req.headers['arachnid-ptporigin'];
-                var ptpSync = req.headers['arachnid-ptpsync'];
-                var duration = req.headers['arachnid-grainduration'];
-                // TODO fix up regeneration
-                var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-                var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-                var tc = req.headers['arachnid-timecode'];
-                var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
-                  gSourceID, duration); // regenerate time as emitted
-                push(null, g);
-                this.lowWaterMark = gts;
+              var ptpOrigin = req.headers['arachnid-ptporigin'];
+              var ptpSync = req.headers['arachnid-ptpsync'];
+              var duration = req.headers['arachnid-grainduration'];
+              // TODO fix up regeneration
+              var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+              var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+              var tc = req.headers['arachnid-timecode'];
+              var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
+                gSourceID, duration); // regenerate time as emitted
+              push(null, g);
+              this.lowWaterMark = gts;
 
-                res.json({
-                  bodyLength : position,
-                  receiveQueueLength : Object.keys(this.receiveQueue).length
-                 });
-               })
-               .catch(e => { next(statusError(500, `Error in push flow promise: ${e.message}`)); });
+              res.json({
+                bodyLength : position,
+                receiveQueueLength : Object.keys(this.receiveQueue).length
+               });
+               this.log('Calling next.');
                next();
              });
-          });
+           });
+           return new Promise((f, r) => { resolver = f; });
         });
       });
 
@@ -388,6 +391,7 @@ module.exports = function (RED) {
       });
 
       app.use((req, res, next) => {
+        this.log('Fell through.');
         res.status(404).json({
           code : 404,
           error : `Could not find the requested resource '${req.path}'.`,
