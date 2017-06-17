@@ -394,7 +394,7 @@ module.exports = function (RED) {
         .listen(config.port, err => {
           if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
         });
-      server.on('listening', function () {
+      server.on('listening', () => {
         this.log(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
       });
       server.on('error', this.warn);
