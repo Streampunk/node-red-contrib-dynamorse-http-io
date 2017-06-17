@@ -385,13 +385,19 @@ module.exports = function (RED) {
         });
       });
 
-      var server = protocol.createServer((config.protocol === 'HTTP') ? {} : {
+      var options = (config.protocol === 'HTTP') ? {} : {
         key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
         cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
-      }, app).listen(config.port);
+      };
+      var server = ((config.protocol === 'HTTP') ?
+        protocol.createServer(app) : protocol.createServer(options, app))
+        .listen(config.port, err => {
+          if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
+        });
       server.on('listening', function () {
-        this.log(`Dynamorse arachnid ${config.protocol} server listening on port ${config.port}.`);
+        this.log(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
       });
+      server.on('error', this.warn);
     } else { // config.mode is set to pull
       dns.lookup(fullURL.hostname, (err, addr, family) => {
         if (err) return this.preFlightError(`Unable to resolve DNS for ${fullURL.hostname}: ${err}`);

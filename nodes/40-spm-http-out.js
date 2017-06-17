@@ -106,7 +106,7 @@ module.exports = function (RED) {
     var begin = null;
     var grainCount = 0;
     var ended = false;
-    var activeRequests = 0;
+    var activeThreads = 0;
     var highWaterMark = '0:0';
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
@@ -121,7 +121,7 @@ module.exports = function (RED) {
       });
     });
     this.each((x, next) => {
-      // this.log('RECD-NEXT', x, started);
+      this.log(`RECD-NEXT ${x} ${started}`);
       if (started === false) {
         node.getNMOSFlow(x, (err, f) => {
           if (err) return node.warn("Failed to resolve NMOS flow.");
@@ -155,8 +155,8 @@ module.exports = function (RED) {
           server = ((config.protocol === 'HTTP') ?
             protocol.createServer(app) : protocol.createServer(options, app))
           .listen(config.port, err => {
-            if (err) node.error(`Failed to start arachnid ${config.protocol} server: ${err}`);
-            node.log(`Arachnid pull ${config.protocol} server listening on port ${config.port}.`);
+            if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
+            node.log(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
           });
           server.on('error', this.warn);
         }
@@ -181,6 +181,85 @@ module.exports = function (RED) {
         node.warn(`HTTP out received something that is not a grain: ${x}`);
         next();
       }
+
+      if (config.mode === 'push') {
+        dnsPromise = dnsPromise.then(() => {
+          var newThreadCount = config.parallel - activeThreads;
+          newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
+          this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
+          var left = grainCache.slice(0, newThreadCount);
+          var right = grainCache.slice(newThreadCount);
+          grainCache = right;
+          left.forEach(gn => {
+            activeThreads++;
+            var g = gn.grain;
+            var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
+            var options = {
+              agent: keepAliveAgent,
+              rejectUnauthorized: false,
+              hostname: fullURL.hostname,
+              port: fullURL.port,
+              path: `${fullURL.path}/essence/${ts}`,
+              method: 'PUT',
+              headers: {
+                'Content-Type': contentType,
+                'Content-Length': g.buffers[0].length,
+                'Arachnid-PTPOrigin': ts,
+                'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
+                'Arachnid-FlowID': uuid.unparse(g.flow_id),
+                'Arachnid-SourceID': uuid.unparse(g.source_id),
+                'Arachnid-SenderID': senderID
+              }
+            };
+            if (g.timecode)
+              options.headers['Arachnid-Timecode'] =
+                Grain.prototype.formatTimecode(g.timecode);
+            if (g.duration)
+              options.headers['Arachnid-GrainDuration'] =
+                Grain.prototype.formatDuration(g.duration);
+
+            var req = protocol.request(options, res => {
+              activeThreads--;
+              if (res.statusCode === 429) {
+                setTimeout(() => {
+                  grainCache.push(gn);
+                  grainCache = reorderCache(grainCache);
+                }, 5);
+                return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
+              }
+              if (res.statusCode === 409) {
+                gn.nextFn();
+                return this.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
+              }
+              if (res.statusCode === 400) {
+                var olderCache = grainCache;
+                grainCache = clearCacheBefore(grainCache, ts);
+                for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
+                  olderCache[x].nextFn();
+                }
+                return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
+              }
+              req.on('end', () => {
+                highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
+                gn.nextFn();
+                if (activeThreads <= 0 && ended && grainCache.length === 0) {
+                  setImmediate(() => sendEnd(highWaterMark));
+                }
+              });
+              req.on('error', e => {
+                this.warn(`Received error when handling push result: ${e}`);
+              });
+            });
+
+            req.end(g.buffers[0]);
+
+            req.on('error', e => {
+              this.warn(`Received error when making a push grain request: ${e}`);
+              activeThreads--;
+            });
+          });
+        });
+      } // End push
     });
     if (config.mode === 'pull') {
       app = express();
@@ -312,95 +391,22 @@ module.exports = function (RED) {
           debug : req.path
         });
       });
-    } else { // Push
-      var newThreadCount = config.parallel - activeThreads;
-      var left = grainCache.slice(0, newThreadCount);
-      var right = grainCache.slice(newThreadCount);
-      grainCache = right;
-      dnsPromise.then(() => { left.forEach(gn => {
-        activeThreads++;
-        var g = gn.grain;
-        var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
-        var options = {
-          agent: keepAliveAgent,
-          rejectUnauthorized: false,
-          hostname: fullURL.hostname,
-          port: fullURL.port,
-          path: `${fullURL.path}/essence/${ts}`,
-          method: 'PUT',
-          headers: {
-            'Content-Type': contentType,
-            'Content-Length': g.buffers[0].length,
-            'Arachnid-PTPOrigin': ts,
-            'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
-            'Arachnid-FlowID': uuid.unparse(g.flow_id),
-            'Arachnid-SourceID': uuid.unparse(g.source_id),
-            'Arachnid-SenderID': senderID
-          }
-        };
-        if (g.timecode)
-          options.headers['Arachnid-Timecode'] =
-            Grain.prototype.formatTimecode(g.timecode);
-        if (g.duration)
-          options.headers['Arachnid-GrainDuration'] =
-            Grain.prototype.formatDuration(g.duration);
+    } // End pull
 
-        var req = protocol.request(options, res => {
-          activeThreads--;
-          if (res.statusCode === 429) {
-            setTimeout(() => {
-              grainCache.push(gn);
-              grainCache = reorderCache(grainCache);
-            }, 5);
-            return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
-          }
-          if (res.statusCode === 409) {
-            gn.nextFn();
-            return this.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
-          }
-          if (res.statusCode === 400) {
-            var olderCache = grainCache;
-            grainCache = clearCacheBefore(grainCache, ts);
-            for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
-              olderCache[x].nextFn();
-            }
-            return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
-          }
-          req.on('end', () => {
-            highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
-            gn.nextFn();
-            if (activeThreads <= 0 && ended && grainCache.length === 0) {
-              setImmediate(() => sendEnd(highWaterMark));
-            }
-          });
-          req.on('error', e => {
-            this.warn(`Received error when handling push result: ${e}`);
-          });
+    function sendEnd(hwm) {
+      var req = protocol.request({
+        agent: keepAliveAgent,
+        rejectUnauthorized: false,
+        hostname: fullURL.hostname,
+        port: fullURL.port,
+        path: `${fullURL.path}/essence/${hwm}/end`,
+        method: 'PUT',
+      }, res => {
+        res.on('error', e => {
+          this.warn(`Unexpected error after pushing stream end: ${e}`);
         });
-
-        req.end(g.buffers[0]);
-
-        req.on('error', e => {
-          this.warn(`Received error when making a push grain request: ${e}`);
-          activeThreads--;
-        });
-      }); });
-
-      function sendEnd(hwm) {
-        var req = protocol.request({
-          agent: keepAliveAgent,
-          rejectUnauthorized: false,
-          hostname: fullURL.hostname,
-          port: fullURL.port,
-          path: `${fullURL.path}/essence/${hwm}/end`,
-          method: 'PUT',
-        }, res => {
-          res.on('error', e => {
-            this.warn(`Unexpected error after pushing stream end: ${e}`);
-          });
-        });
-      }
-    } // End push
+      });
+    }
 
     this.clearDown = null;
     if (this.clearDown === null) {
@@ -428,7 +434,7 @@ module.exports = function (RED) {
       clearInterval(this.clearDown);
       this.clearDown = null;
       ended = true;
-      if (server) setTimeout(server.close, 20000);
+      if (server) setTimeout(server.close, 35000);
     });
   }
   util.inherits(SpmHTTPOut, redioactive.Spout);
