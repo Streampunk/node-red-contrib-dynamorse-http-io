@@ -199,7 +199,7 @@ module.exports = function (RED) {
               rejectUnauthorized: false,
               hostname: fullURL.hostname,
               port: fullURL.port,
-              path: `${fullURL.path}/essence/${ts}`,
+              path: `${fullURL.path}/${ts}`,
               method: 'PUT',
               headers: {
                 'Content-Type': contentType,
@@ -224,6 +224,7 @@ module.exports = function (RED) {
                 setTimeout(() => {
                   grainCache.push(gn);
                   grainCache = reorderCache(grainCache);
+                  this.log(`Reodered cache: ${grainCache}`);
                 }, 5);
                 return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
               }
@@ -239,14 +240,15 @@ module.exports = function (RED) {
                 }
                 return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
               }
-              req.on('end', () => {
+              res.on('data', () => {});
+              res.on('end', () => {
                 highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
                 gn.nextFn();
                 if (activeThreads <= 0 && ended && grainCache.length === 0) {
                   setImmediate(() => sendEnd(highWaterMark));
                 }
               });
-              req.on('error', e => {
+              res.on('error', e => {
                 this.warn(`Received error when handling push result: ${e}`);
               });
             });
@@ -399,7 +401,7 @@ module.exports = function (RED) {
         rejectUnauthorized: false,
         hostname: fullURL.hostname,
         port: fullURL.port,
-        path: `${fullURL.path}/essence/${hwm}/end`,
+        path: `${fullURL.path}/${hwm}/end`,
         method: 'PUT',
       }, res => {
         res.on('error', e => {

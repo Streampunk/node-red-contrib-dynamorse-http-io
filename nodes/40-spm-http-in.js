@@ -308,21 +308,21 @@ module.exports = function (RED) {
       var app = express();
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
-      app.put(config.path + "/:ts", function (req, res, next) {
-        if (Object.keys(this.receiveQueue).length > config.cacheSize) {
+      app.put(config.path + "/:ts", (req, res, next) => {
+        if (Object.keys(this.receiveQueue).length >= config.cacheSize) {
           return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
         }
         if (Object.keys(this.receiveQueue).indexOf(req.params.ts) >=0) {
-          return next(statusError(409, `Receive queue already contains timestamp ${req.param.ts}.`))
+          return next(statusError(409, `Receive queue already contains timestamp ${req.params.ts}.`))
         }
-        if (lowWaterMark && compareVersions(lowWaterMark, req.params.ts) < 0) {
-          return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${lowWaterMark}.`))
+        if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
+          return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`))
         }
-        var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(res.headers);
-        var grainData = new Buffer(+req.headers['content-length']);
+        var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(req.headers);
+        var grainData = [];
         var position = 0;
         req.on('data', data => {
-          data.copy(grainData, position);
+          grainData.push(data);
           position += data.length;
         });
         req.on('end', () => {
@@ -337,10 +337,10 @@ module.exports = function (RED) {
             var tc = req.headers['arachnid-timecode'];
             var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
               gSourceID, duration); // regenerate time as emitted
-            receiveQueue[req.params.ts] = g;
+            this.receiveQueue[req.params.ts] = g;
 
             res.json({
-              bodyLength : req.body.length,
+              bodyLength : position,
               receiveQueueLength : Object.keys(this.receiveQueue).length
              });
            })
@@ -353,8 +353,8 @@ module.exports = function (RED) {
           .sort(compareVersions)
           .slice(0, -config.parallel)
           .forEach(gts => {
-            push(null, g);
-            lowWaterMark = gts;
+            push(null, this.receiveQueue[gts]);
+            this.lowWaterMark = gts;
             delete this.receiveQueue[gts];
           });
         next();
