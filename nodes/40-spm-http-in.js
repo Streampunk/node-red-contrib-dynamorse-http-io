@@ -189,7 +189,7 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 503) {
-          node.log('Source stream has ended - thread ${x}.');
+          node.log(`Source stream has ended - thread ${x}.`);
           endTimeout = (endTimeout) ? endTimeout :
             setTimeout(() => { push(null, redioactive.end); }, 1000);
           activeThreads[x] = false;
@@ -398,7 +398,7 @@ module.exports = function (RED) {
         node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
         fullURL.hostname = addr;
         this.generator((push, next) => {
-          if (!ended) {
+          if (ended === false) {
             setTimeout(() => {
               // console.log('+++ DEBUG THREADS', activeThreads);
               for ( var i = 0 ; i < activeThreads.length ; i++ ) {
@@ -412,6 +412,8 @@ module.exports = function (RED) {
                 }
               };
             }, (flow === null) ? 1000 : 0);
+          } else {
+            this.log('Not responding to generator.');
           }
         });
       });

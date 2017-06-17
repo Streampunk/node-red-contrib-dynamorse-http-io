@@ -200,11 +200,6 @@ module.exports = function (RED) {
         });
       });
       app.get(config.path + "/:ts", (req, res, next) => {
-        // var threadNumber = req.headers['arachnid-threadnumber'];
-        // threadNumber = (isNaN(+threadNumber)) ? 0 : +threadNumber;
-        // console.log('*** Received HTTP GET', req.params.ts, 'thread', threadNumber);
-        // var totalConcurrent = req.headers['arachnid-totalconcurrent'];
-        // totalConcurrent = (isNaN(+totalConcurrent)) ? 1 : +totalConcurrent;
         this.log(`Received request for ${req.params.ts}.`);
         var nextGrain = grainCache[grainCache.length - 1].nextFn;
         var clientID = req.headers['arachnid-clientid'];
@@ -290,7 +285,7 @@ module.exports = function (RED) {
 
         var startSend = process.hrtime();
         res.send(data);
-        nextGrain();
+        if (ended === false) nextGrain();
       });
 
       app.use((err, req, res, next) => {
