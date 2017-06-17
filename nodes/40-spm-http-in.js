@@ -305,6 +305,8 @@ module.exports = function (RED) {
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
       this.lowWaterMark = null;
+      var flowPromise = Promise.resolve();
+      var started = false;
       var app = express();
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
@@ -319,11 +321,14 @@ module.exports = function (RED) {
           return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`))
         }
         this.receiveQueue[req.params.ts] = { req: req, res: res };
+        if (started === false) {
+          flowPromise = flowPromise.then(() => makeFlowAndSource(req.headers));
+          started = true;
+        };
       });
 
       this.generator((push, next) => {
-        var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(req.headers);
-        flowPromise.then(() => {
+        flowPromise = flowPromise.then(() => {
           Object.keys(this.receiveQueue)
           .sort(compareVersions)
           .slice(0, 1)
