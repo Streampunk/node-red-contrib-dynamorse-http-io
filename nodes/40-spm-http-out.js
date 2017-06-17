@@ -183,7 +183,7 @@ module.exports = function (RED) {
       }
 
       if (config.mode === 'push') {
-        dnsPromise = dnsPromise.then(() => {
+        var sendMore = () => {
           var newThreadCount = config.parallel - activeThreads;
           newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
           this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
@@ -224,7 +224,7 @@ module.exports = function (RED) {
                 setTimeout(() => {
                   grainCache.push(gn);
                   grainCache = reorderCache(grainCache);
-                  this.log(`Reodered cache: ${grainCache}`);
+                  sendMore();
                 }, 5);
                 return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
               }
@@ -260,7 +260,8 @@ module.exports = function (RED) {
               activeThreads--;
             });
           });
-        });
+        };
+        dnsPromise = dnsPromise.then(sendMore);
       } // End push
     });
     if (config.mode === 'pull') {

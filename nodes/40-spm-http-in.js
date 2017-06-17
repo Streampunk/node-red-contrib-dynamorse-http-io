@@ -318,46 +318,50 @@ module.exports = function (RED) {
         if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
           return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`))
         }
-        var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(req.headers);
-        var grainData = [];
-        var position = 0;
-        req.on('data', data => {
-          grainData.push(data);
-          position += data.length;
-        });
-        req.on('end', () => {
-          var joined = Buffer.concat(grainData, position);
-          flowPromise.then(() => {
-            var ptpOrigin = req.headers['arachnid-ptporigin'];
-            var ptpSync = req.headers['arachnid-ptpsync'];
-            var duration = req.headers['arachnid-grainduration'];
-            // TODO fix up regeneration
-            var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-            var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-            var tc = req.headers['arachnid-timecode'];
-            var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
-              gSourceID, duration); // regenerate time as emitted
-            this.receiveQueue[req.params.ts] = g;
-
-            res.json({
-              bodyLength : position,
-              receiveQueueLength : Object.keys(this.receiveQueue).length
-             });
-           })
-           .catch(e => { next(statusError(500, `Error in push flow promise: ${e.message}`)); });
-         });
+        this.receiveQueue[req.params.ts] = { req: req, res: res };
       });
 
       this.generator((push, next) => {
-        Object.keys(this.receiveQueue)
+        var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(req.headers);
+        flowPromise.then(() =>
+          Object.keys(this.receiveQueue)
           .sort(compareVersions)
-          .slice(0, -config.parallel)
+          .slice(0, 1)
           .forEach(gts => {
-            push(null, this.receiveQueue[gts]);
-            this.lowWaterMark = gts;
+            var req = this.receiveQueue[gts].req;
+            var res = this.receiveQueue[gts].res;
             delete this.receiveQueue[gts];
+            var grainData = [];
+            var position = 0;
+            req.on('data', data => {
+              grainData.push(data);
+              position += data.length;
+            });
+            req.on('end', () => {
+              var joined = Buffer.concat(grainData, position);
+              flowPromise.then(() => {
+                var ptpOrigin = req.headers['arachnid-ptporigin'];
+                var ptpSync = req.headers['arachnid-ptpsync'];
+                var duration = req.headers['arachnid-grainduration'];
+                // TODO fix up regeneration
+                var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+                var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+                var tc = req.headers['arachnid-timecode'];
+                var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
+                  gSourceID, duration); // regenerate time as emitted
+                push(null, g);
+                this.lowWaterMark = gts;
+
+                res.json({
+                  bodyLength : position,
+                  receiveQueueLength : Object.keys(this.receiveQueue).length
+                 });
+               })
+               .catch(e => { next(statusError(500, `Error in push flow promise: ${e.message}`)); });
+               next();
+             });
           });
-        next();
+        });
       });
 
       app.use((err, req, res, next) => {
