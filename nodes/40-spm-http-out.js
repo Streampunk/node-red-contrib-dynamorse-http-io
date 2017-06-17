@@ -108,9 +108,9 @@ module.exports = function (RED) {
     var ended = false;
     var activeRequests = 0;
     var highWaterMark = '0:0';
-    config.pullURL = (config.pullURL.endsWith('/')) ?
-      config.pullURL.slice(0, -1) : config.pullURL;
-    var fullPath = `${config.pullURL}:${config.port}${config.path}`;
+    config.pushURL = (config.pushURL.endsWith('/')) ?
+      config.pushURL.slice(0, -1) : config.pushURL;
+    var fullPath = `${config.pushURL}:${config.port}${config.path}`;
     var fullURL = url.parse(fullPath);
     var keepAliveAgent = new protocol.Agent({keepAlive : true });
     var dnsPromise = (config.mode === 'pull') ? null : new Promise((resolve, reject) => {

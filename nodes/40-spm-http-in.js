@@ -138,6 +138,7 @@ module.exports = function (RED) {
 
     var keepAliveAgent = new protocol.Agent({keepAlive : true });
     var endCount = 0;
+    var endTimeout = null;
     var runNext = (x, push, next) => {
       var requestTimer = process.hrtime();
     //  this.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
@@ -179,11 +180,17 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 410) {
-          node.error(`BANG! Cache miss when reading stream ${config.path}/${nextRequest[x]} on thread ${x}.`);
+          node.error(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
           push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
           nextRequest =
             [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
           activeThreads[x] = false;
+          return;
+        }
+        if (res.statusCode === 503) {
+          node.log('Source stream has ended - thread ${x}.');
+          endTimeout = (endTimeout) ? endTimeout :
+            setTimeout(() => { push(null, redioactive.end); }, 1000);
           return;
         }
         if (res.statusCode === 200) {
