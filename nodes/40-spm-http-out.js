@@ -23,9 +23,12 @@ var fs = require('fs');
 var Grain = require('node-red-contrib-dynamorse-core').Grain;
 var uuid = require('uuid');
 var Net = require('../util/Net.js');
+var dns = require('dns');
+var url = require('url');
 
 const variation = 1; // Grain timing requests may vary +-1ms
 const nineZeros = '000000000';
+const nop = () => {};
 
 var statusError = (status, message) => {
   var e = new Error(message);
@@ -36,6 +39,40 @@ var statusError = (status, message) => {
 function msOriginTs(g) {
   return (g.ptpOrigin.readUIntBE(0, 6) * 1000) +
     (g.ptpOrigin.readUInt32BE(6) / 1000000|0);
+}
+
+function extractVersions(v) {
+  var m = v.match(/^([0-9]+):([0-9]+)$/);
+  if (m === null) { return [Number.MAX_SAFE_INTEGER, 0]; }
+  return [+m[1], +m[2]];
+}
+
+function compareVersions(l, r) {
+  var lm = extractVersions(l);
+  var rm = extractVersions(r);
+  if (lm[0] < rm[0]) return -1;
+  if (lm[0] > rm[0]) return 1;
+  if (lm[1] < rm[1]) return -1;
+  if (lm[1] > rm[1]) return 1;
+  return 0;
+}
+
+function reorderCache(c) {
+  var co = {};
+  var r = [];
+  c.forEach(x => {
+    co[Grain.prototype.formatTimestamp(x.grain.ptpOrigin)] = x; });
+  Object.keys(co).sort(compareVersions).forEach(x => { r.push(co[x]); });
+  return r;
+}
+
+function clearCacheBefore(c, t) {
+  var s = c;
+  while (s.length > 0 && compareVersions(
+      Grain.prototype.formatTimestamp(s[0].grain.ptpOrigin), t) < 0) {
+    s = s.slice(1);
+  }
+  return s;
 }
 
 module.exports = function (RED) {
@@ -61,7 +98,6 @@ module.exports = function (RED) {
     var contentType = 'application/octet-stream';
     var started = false;
     var app = null; var server = null;
-    var getNext = null;
     var sender = null; var flow = null;
     var senderID = uuid.v4();
     var ledger = this.context().global.get('ledger');
@@ -69,8 +105,23 @@ module.exports = function (RED) {
     var genericID = this.context().global.get('genericID');
     var begin = null;
     var grainCount = 0;
+    var ended = false;
+    var activeRequests = 0;
+    var highWaterMark = '0:0';
+    config.pullURL = (config.pullURL.endsWith('/')) ?
+      config.pullURL.slice(0, -1) : config.pullURL;
+    var fullPath = `${config.pullURL}:${config.port}${config.path}`;
+    var fullURL = url.parse(fullPath);
+    var keepAliveAgent = new protocol.Agent({keepAlive : true });
+    var dnsPromise = (config.mode === 'pull') ? null : new Promise((resolve, reject) => {
+      dns.lookup(fullURL.hostname, (err, addr, family) => {
+        if (err) return reject(err);
+        fullURL.hostname = addr;
+        resolve(addr);
+      });
+    });
     this.each((x, next) => {
-      this.log('RECD-NEXT', x, started);
+      // this.log('RECD-NEXT', x, started);
       if (started === false) {
         node.getNMOSFlow(x, (err, f) => {
           if (err) return node.warn("Failed to resolve NMOS flow.");
@@ -114,8 +165,8 @@ module.exports = function (RED) {
         started = true;
       };
       if (Grain.isGrain(x)) {
-        grainCache.push({ grain : x, nextFn : next});
-        getNext = next;
+        grainCache.push({ grain : x,
+          nextFn : (config.backpressure === true) ? next : nop });
         if (grainCache.length > config.cacheSize) {
           grainCache = grainCache.slice(grainCache.length - config.cacheSize);
         }
@@ -167,6 +218,7 @@ module.exports = function (RED) {
           //   msOriginTs(grainCache[0].grain),
           //   msOriginTs(grainCache[grainCache.length - 1].grain));
           g = grainCache.find(y => {
+
             var grCheck = msOriginTs(y.grain);
             return (rangeCheck >= grCheck - variation) &&
               (rangeCheck <= grCheck + variation);
@@ -181,8 +233,11 @@ module.exports = function (RED) {
             } else {
               // nextGrain();
               // console.log('!!! Responding not found.');
-              this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
-              return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
+              // this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
+              if (ended)
+                return next(statusError(503, 'Stream has ended.'));
+              else
+                return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
             }
           }
         } else {
@@ -231,45 +286,11 @@ module.exports = function (RED) {
         res.setHeader('Content-Type', contentType);
         var data = g.buffers[0];
         res.setHeader('Content-Length', data.length);
-        // FIXME this will not work without a grain duration
-        // var durArray = g.getDuration();
-        // var originArray = g.getOriginTimestamp();
-  //      res.setHeader('DEBUG-TS', `${originArray} ${totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0}`);
-        // originArray[1] = originArray[1] +
-        //   totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
-        // if (originArray[1] >= 1000000000)
-        //   originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
-        // var nanos = (originArray[1]%1000000000).toString();
-        // res.setHeader('Arachnid-NextByThread',
-        //   `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`);
         if (req.method === 'HEAD') return res.end();
-      //  this.log(`Got to b4 send. Data length ${data.length}`);
 
         var startSend = process.hrtime();
         res.send(data);
         nextGrain();
-
-        // var written = 0;
-        // var count = 0; var drains = 0;
-        // write();
-        // function write() {
-        //   drains++;
-        //   var ok = true;
-        //   while (written < data.length && ok) {
-        //     ok = res.write(data.slice(written, written + 8192));
-        //     written += 8192; count++;
-        //   }
-        //   if (written < data.length) {
-        //     res.once('drain', write);
-        //   } else {
-        //     res.end(() => {
-        //       node.log(`Sending grain took ${(function (a) {
-        //         return a[0]*1000 + a[1]/1000000; })(process.hrtime(startSend))}ms ` +
-        //         `in ${count} writes chunked into ${drains} parts.`);
-        //       nextGrain();
-        //     });
-        //   }
-        // }
       });
 
       app.use((err, req, res, next) => {
@@ -296,9 +317,95 @@ module.exports = function (RED) {
           debug : req.path
         });
       });
-    } else {
-      // TODO implement push mode
-    }
+    } else { // Push
+      var newThreadCount = config.parallel - activeThreads;
+      var left = grainCache.slice(0, newThreadCount);
+      var right = grainCache.slice(newThreadCount);
+      grainCache = right;
+      dnsPromise.then(() => { left.forEach(gn => {
+        activeThreads++;
+        var g = gn.grain;
+        var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
+        var options = {
+          agent: keepAliveAgent,
+          rejectUnauthorized: false,
+          hostname: fullURL.hostname,
+          port: fullURL.port,
+          path: `${fullURL.path}/essence/${ts}`,
+          method: 'PUT',
+          headers: {
+            'Content-Type': contentType,
+            'Content-Length': g.buffers[0].length,
+            'Arachnid-PTPOrigin': ts,
+            'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
+            'Arachnid-FlowID': uuid.unparse(g.flow_id),
+            'Arachnid-SourceID': uuid.unparse(g.source_id),
+            'Arachnid-SenderID': senderID
+          }
+        };
+        if (g.timecode)
+          options.headers['Arachnid-Timecode'] =
+            Grain.prototype.formatTimecode(g.timecode);
+        if (g.duration)
+          options.headers['Arachnid-GrainDuration'] =
+            Grain.prototype.formatDuration(g.duration);
+
+        var req = protocol.request(options, res => {
+          activeThreads--;
+          if (res.statusCode === 429) {
+            setTimeout(() => {
+              grainCache.push(gn);
+              grainCache = reorderCache(grainCache);
+            }, 5);
+            return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
+          }
+          if (res.statusCode === 409) {
+            gn.nextFn();
+            return this.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
+          }
+          if (res.statusCode === 400) {
+            var olderCache = grainCache;
+            grainCache = clearCacheBefore(grainCache, ts);
+            for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
+              olderCache[x].nextFn();
+            }
+            return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
+          }
+          req.on('end', () => {
+            highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
+            gn.nextFn();
+            if (activeThreads <= 0 && ended && grainCache.length === 0) {
+              setImmediate(() => sendEnd(highWaterMark));
+            }
+          });
+          req.on('error', e => {
+            this.warn(`Received error when handling push result: ${e}`);
+          });
+        });
+
+        req.end(g.buffers[0]);
+
+        req.on('error', e => {
+          this.warn(`Received error when making a push grain request: ${e}`);
+          activeThreads--;
+        });
+      }); });
+
+      function sendEnd(hwm) {
+        var req = protocol.request({
+          agent: keepAliveAgent,
+          rejectUnauthorized: false,
+          hostname: fullURL.hostname,
+          port: fullURL.port,
+          path: `${fullURL.path}/essence/${hwm}/end`,
+          method: 'PUT',
+        }, res => {
+          res.on('error', e => {
+            this.warn(`Unexpected error after pushing stream end: ${e}`);
+          });
+        });
+      }
+    } // End push
 
     this.clearDown = null;
     if (this.clearDown === null) {
@@ -322,9 +429,11 @@ module.exports = function (RED) {
     };
 
     this.done(() => {
-      node.log('Closing the app!');
-      clearInterval(this.clearDown); this.clearDown = null;
-      server.close();
+      node.log('Closing the app and/or ending the stream!');
+      clearInterval(this.clearDown);
+      this.clearDown = null;
+      ended = true;
+      if (server) setTimeout(server.close, 20000);
     });
   }
   util.inherits(SpmHTTPOut, redioactive.Spout);

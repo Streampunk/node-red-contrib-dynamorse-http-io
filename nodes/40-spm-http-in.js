@@ -30,6 +30,12 @@ var url = require('url');
 var maxDrift = 40 * 8;
 const nineZeros = '000000000';
 
+var statusError = (status, message) => {
+  var e = new Error(message);
+  e.status = status;
+  return e;
+};
+
 function extractVersions(v) {
   var m = v.match(/^([0-9]+):([0-9]+)$/);
   if (m === null) { return [Number.MAX_SAFE_INTEGER, 0]; }
@@ -181,20 +187,20 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 200) {
-          var grainData = Buffer.alloc(+res.headers['content-length']);
+          var grainData = [];
           nextRequest[x] = res.headers['arachnid-ptporigin'];
           var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(res.headers);
           flowPromise.then(() => {
             res.on('data', data => {
-              data.copy(grainData, position);
+              grainData.push(data)
               position += data.length;
               count++;
               // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
             });
             res.on('end', () => {
               // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
-              grainData = grainData.slice(0, position);
-              nextRequest[x] = res.headers['arachnid-nextbythread'];
+              var joined = Buffer.concat(grainData, position);
+              //nextRequest[x] = res.headers['arachnid-nextbythread'];
               var ptpOrigin = res.headers['arachnid-ptporigin'];
               var ptpSync = res.headers['arachnid-ptpsync'];
               var duration = res.headers['arachnid-grainduration'];
@@ -202,7 +208,7 @@ module.exports = function (RED) {
               var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
               var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
               var tc = res.headers['arachnid-timecode'];
-              var g = new Grain([ grainData ], ptpSync, ptpOrigin, tc, gFlowID,
+              var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
                 gSourceID, duration); // regenerate time as emitted
 
               var durArray = g.getDuration();
@@ -286,28 +292,101 @@ module.exports = function (RED) {
     var nextRequest =
       [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
 
-    dns.lookup(fullURL.hostname, (err, addr, family) => {
-      if (err) return this.preFlightError(`Unable to resolve DNS for ${fullURL.hostname}: ${err}`);
-      node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
-      fullURL.hostname = addr;
-      if (config.mode === 'push') { // TODO push mode
-        // var app = express();
-        // app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
-        //
-        // app.post(config.path, function (req, res) {
-        //   console.log(pushCount++, process.hrtime(star
-        //     tTime), req.body.length);
-        //   res.json({ length : req.body.length }); // Need to add back pressure concept
-        // });
-        //
-        // var server = protocol.createServer((config.protocol === 'HTTP') ? {} : {
-        //   key : fs.readFileSync('./certs/dynamorse-key.pem'),
-        //   cert : fs.readFileSync('./certs/dynamorse-cert.pem')
-        // }, app).listen(config.port);
-        // server.on('listening', function () {
-        //   this.log(`Dynamorse ${config.protocol} server listening on port ${config.port}.`);
-        // });
-      } else { // config.mode is set to pull
+    if (config.mode === 'push') { // push mode
+      this.receiveQueue = {};
+      this.lowWaterMark = null;
+      var app = express();
+      //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
+
+      app.put(config.path + "/:ts", function (req, res, next) {
+        if (Object.keys(this.receiveQueue).length > config.cacheSize) {
+          return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
+        }
+        if (Object.keys(this.receiveQueue).indexOf(req.params.ts) >=0) {
+          return next(statusError(409, `Receive queue already contains timestamp ${req.param.ts}.`))
+        }
+        if (lowWaterMark && compareVersions(lowWaterMark, req.params.ts) < 0) {
+          return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${lowWaterMark}.`))
+        }
+        var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(res.headers);
+        var grainData = new Buffer(+req.headers['content-length']);
+        var position = 0;
+        req.on('data', data => {
+          data.copy(grainData, position);
+          position += data.length;
+        });
+        req.on('end', () => {
+          var joined = Buffer.concat(grainData, position);
+          flowPromise.then(() => {
+            var ptpOrigin = req.headers['arachnid-ptporigin'];
+            var ptpSync = req.headers['arachnid-ptpsync'];
+            var duration = req.headers['arachnid-grainduration'];
+            // TODO fix up regeneration
+            var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+            var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+            var tc = req.headers['arachnid-timecode'];
+            var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
+              gSourceID, duration); // regenerate time as emitted
+            receiveQueue[req.params.ts] = g;
+
+            res.json({
+              bodyLength : req.body.length,
+              receiveQueueLength : Object.keys(this.receiveQueue).length
+             });
+           })
+           .catch(e => { next(statusError(500, `Error in push flow promise: ${e.message}`)); });
+         });
+      });
+
+      this.generator((push, next) => {
+        Object.keys(this.receiveQueue)
+          .sort(compareVersions)
+          .slice(0, -config.parallel)
+          .forEach(gts => {
+            push(null, g);
+            lowWaterMark = gts;
+            delete this.receiveQueue[gts];
+          });
+        next();
+      });
+
+      app.use((err, req, res, next) => {
+        this.warn(err);
+        if (err.status) {
+          res.status(err.status).json({
+            code: err.status,
+            error: (err.message) ? err.message : 'Internal server error. No message available.',
+            debug: (err.stack) ? err.stack : 'No stack available.'
+          });
+        } else {
+          res.status(500).json({
+            code: 500,
+            error: (err.message) ? err.message : 'Internal server error. No message available.',
+            debug: (err.stack) ? err.stack : 'No stack available.'
+          });
+        }
+      });
+
+      app.use((req, res, next) => {
+        res.status(404).json({
+          code : 404,
+          error : `Could not find the requested resource '${req.path}'.`,
+          debug : req.path
+        });
+      });
+
+      var server = protocol.createServer((config.protocol === 'HTTP') ? {} : {
+        key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
+        cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
+      }, app).listen(config.port);
+      server.on('listening', function () {
+        this.log(`Dynamorse arachnid ${config.protocol} server listening on port ${config.port}.`);
+      });
+    } else { // config.mode is set to pull
+      dns.lookup(fullURL.hostname, (err, addr, family) => {
+        if (err) return this.preFlightError(`Unable to resolve DNS for ${fullURL.hostname}: ${err}`);
+        node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
+        fullURL.hostname = addr;
         this.generator((push, next) => {
           setTimeout(() => {
             // console.log('+++ DEBUG THREADS', activeThreads);
@@ -323,9 +402,8 @@ module.exports = function (RED) {
             };
           }, (flow === null) ? 1000 : 0);
         });
-      }
-    });
-
+      });
+    }
   }
   util.inherits(SpmHTTPIn, redioactive.Funnel);
   RED.nodes.registerType("spm-http-in", SpmHTTPIn);
