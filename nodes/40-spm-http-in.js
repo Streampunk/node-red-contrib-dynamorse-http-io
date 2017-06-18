@@ -312,7 +312,7 @@ module.exports = function (RED) {
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
       app.put(config.path + "/:ts", (req, res, next) => {
-        this.log(`Received request ${req.path}.`);
+        // this.log(`Received request ${req.path}.`);
         if (Object.keys(this.receiveQueue).length >= config.cacheSize) {
           return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
         }
@@ -377,7 +377,7 @@ module.exports = function (RED) {
                 bodyLength : position,
                 receiveQueueLength : Object.keys(this.receiveQueue).length
               });
-              this.log('Calling next.');
+              // this.log('Calling next.');
               next();
             });
           });
@@ -406,7 +406,7 @@ module.exports = function (RED) {
       });
 
       app.use((req, res, next) => {
-        this.log('Fell through.');
+        this.log(`Fell through express. Request ${req.path} is unhandled.`);
         res.status(404).json({
           code : 404,
           error : `Could not find the requested resource '${req.path}'.`,

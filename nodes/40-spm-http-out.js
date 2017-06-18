@@ -121,13 +121,13 @@ module.exports = function (RED) {
       });
     });
     this.each((x, next) => {
-      this.log(`RECD-NEXT ${x} ${started}`);
+      // this.log(`RECD-NEXT ${x} ${started}`);
       if (started === false) {
         node.getNMOSFlow(x, (err, f) => {
           if (err) return node.warn("Failed to resolve NMOS flow.");
           else {
             flow = f;
-            console.log('FLOW', f);
+            // console.log('FLOW', f);
             var encodingName = f.tags.encodingName[0];
             if (f.tags.packing && f.tags.packing[0].toLowerCase() === 'v210') encodingName = 'x-v210';
             if (f.tags.format[0] === 'video' &&
@@ -149,7 +149,7 @@ module.exports = function (RED) {
             genericID, // TODO do better at binding to an address
             `http://${Net.getFirstRealIP4Interface().address}:${config.port}/${config.path}`);
           nodeAPI.putResource(sender).catch(node.warn);
-          node.log(`content type ${contentType}`);
+          // node.log(`content type ${contentType}`);
         });
         if (app) {
           server = ((config.protocol === 'HTTP') ?
@@ -186,7 +186,7 @@ module.exports = function (RED) {
         var sendMore = () => {
           var newThreadCount = config.parallel - activeThreads;
           newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
-          this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
+          // this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
           var left = grainCache.slice(0, newThreadCount);
           var right = grainCache.slice(newThreadCount);
           grainCache = right;
@@ -218,8 +218,10 @@ module.exports = function (RED) {
               options.headers['Arachnid-GrainDuration'] =
                 Grain.prototype.formatDuration(g.duration);
 
+            // this.log(`About to make request ${options.path}.`);
             var req = protocol.request(options, res => {
               activeThreads--;
+              // this.log(`Response received ${activeThreads}.`);
               if (res.statusCode === 429) {
                 setTimeout(() => {
                   grainCache.push(gn);
@@ -243,8 +245,9 @@ module.exports = function (RED) {
               res.on('data', () => {});
               res.on('end', () => {
                 highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
+                // this.log(`Response ${req.path} has ended.`);
                 gn.nextFn();
-                if (activeThreads <= 0 && ended && grainCache.length === 0) {
+                if (activeThreads <= 0 && ended === true && grainCache.length === 0) {
                   setImmediate(() => sendEnd(highWaterMark));
                 }
               });
@@ -282,7 +285,7 @@ module.exports = function (RED) {
         });
       });
       app.get(config.path + "/:ts", (req, res, next) => {
-        this.log(`Received request for ${req.params.ts}.`);
+        // this.log(`Received request for ${req.params.ts}.`);
         var nextGrain = grainCache[grainCache.length - 1].nextFn;
         var clientID = req.headers['arachnid-clientid'];
         var g = null;
