@@ -327,20 +327,32 @@ module.exports = function (RED) {
           resolver(makeFlowAndSource(req.headers));
           started = true;
         } else {
-          resolver();
+          if (resolver) resolver();
         };
+        resolver = null;
       });
 
+      var pullCount = 0;
       this.generator((push, next) => {
         flowPromise = flowPromise.then(() => {
-          this.log('Calling generator.');
-          Object.keys(this.receiveQueue)
-          .sort(compareVersions)
-          .slice(0, 1)
+          // this.log('Calling generator.');
+          var sortedKeys = Object.keys(this.receiveQueue)
+          .sort(compareVersions);
+          var numberToSend = sortedKeys.length - config.parallel + 1;
+          sortedKeys.slice(0, (numberToSend >= 0) ? numberToSend : 0)
           .forEach(gts => {
             var req = this.receiveQueue[gts].req;
             var res = this.receiveQueue[gts].res;
             delete this.receiveQueue[gts];
+            if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
+              next();
+              this.warn(`Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`);
+              return res.status(400).json({
+                code: 400,
+                error: `Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`,
+                debug: 'No stack available.'
+              });
+            }
             var grainData = [];
             var position = 0;
             req.on('data', data => {
@@ -364,12 +376,15 @@ module.exports = function (RED) {
               res.json({
                 bodyLength : position,
                 receiveQueueLength : Object.keys(this.receiveQueue).length
-               });
-               this.log('Calling next.');
-               next();
-             });
-           });
-           return new Promise((f, r) => { resolver = f; });
+              });
+              this.log('Calling next.');
+              next();
+            });
+          });
+          if (resolver === null)
+            return new Promise((f, r) => { resolver = f; });
+          else
+            return resolver(new Promise((f, r) => { resolver = f; }));
         });
       });
 
