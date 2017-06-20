@@ -114,12 +114,15 @@ module.exports = function (RED) {
       });
       if (tags.encodingName[0] === 'x-v210') {
         tags.clockRate = [ '90000' ];
+        tags.encodingName = [ 'raw' ];
         tags.packing = [ 'v210' ];
       } else if (tags.encodingName[0] === 'raw') {
         tags.clockRate = [ '90000' ];
         tags.packing = [ 'pgroup' ];
       }
-      if (tags.packing === 'v210') tags.encodingName = [ 'raw' ];
+      if (headers['arachnid-packing'])
+        tags.packing = [ headers['arachnid-packing'] ];
+
       var senderID = headers['arachnid-senderid'];
       senderID = (senderID === undefined) ? null : { sender_id : senderID };
       source = new ledger.Source(sourceID, null, localName, localDescription,

@@ -96,6 +96,7 @@ module.exports = function (RED) {
     var clientCache = {};
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
     var contentType = 'application/octet-stream';
+    var packing = 'raw';
     var started = false;
     var app = null; var server = null;
     var sender = null; var flow = null;
@@ -141,6 +142,7 @@ module.exports = function (RED) {
               if (f.tags.channels) contentType += `; channels=${f.tags.channels[0]}`;
             };
           }
+          packing = f.tags.packing[0];
           var localName = config.name || `${config.type}-${config.id}`;
           var localDescription = config.description || `${config.type}-${config.id}`;
           // TODO support regeneration of flows
@@ -208,7 +210,8 @@ module.exports = function (RED) {
                 'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
                 'Arachnid-FlowID': uuid.unparse(g.flow_id),
                 'Arachnid-SourceID': uuid.unparse(g.source_id),
-                'Arachnid-SenderID': senderID
+                'Arachnid-SenderID': senderID,
+                'Arachnid-Packing': packing
               }
             };
             if (g.timecode)
@@ -354,6 +357,7 @@ module.exports = function (RED) {
         res.setHeader('Arachnid-FlowID', uuid.unparse(g.flow_id));
         res.setHeader('Arachnid-SourceID', uuid.unparse(g.source_id));
         res.setHeader('Arachnid-SenderID', senderID);
+        res.setHeader('Arachnid-Packing', packing);
         if (g.timecode)
           res.setHeader('Arachnid-Timecode',
             Grain.prototype.formatTimecode(g.timecode));
