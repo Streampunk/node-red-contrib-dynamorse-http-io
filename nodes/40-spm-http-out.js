@@ -128,7 +128,6 @@ module.exports = function (RED) {
           if (err) return node.warn("Failed to resolve NMOS flow.");
           else {
             flow = f;
-            // console.log('FLOW', f);
             var encodingName = f.tags.encodingName[0];
             if (f.tags.packing && f.tags.packing[0].toLowerCase() === 'v210') encodingName = 'x-v210';
             if (f.tags.format[0] === 'video' &&
@@ -142,7 +141,7 @@ module.exports = function (RED) {
               if (f.tags.channels) contentType += `; channels=${f.tags.channels[0]}`;
             };
           }
-          packing = f.tags.packing[0];
+          packing = (f.tags.packing) ? f.tags.packing[0] : 'raw';
           var localName = config.name || `${config.type}-${config.id}`;
           var localDescription = config.description || `${config.type}-${config.id}`;
           // TODO support regeneration of flows
