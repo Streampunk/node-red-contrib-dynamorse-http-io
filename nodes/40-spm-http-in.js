@@ -269,18 +269,19 @@ module.exports = function (RED) {
     var grainQueue = { };
     var highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
     // Push every grain older than what is in nextRequest, send grains in order
-    function pushGrains (g, push) {
+    var pushGrains = (g, push) => {
       grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
       // console.log('QQQ', nextRequest, 'hwm', highWaterMark);
       var nextMin = nextRequest.reduce((a, b) =>
           compareVersions(a, b) <= 0 ? a : b);
       // console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
 
+      console.log('REGEN', config.regenerate);
       Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
       .sort(compareVersions)
       .forEach(gts => {
         if (!config.regenerate) {
-          // console.log('>>> PUSHING', gts);
+          console.log('>>> PUSHING', config.regenerate);
           push(null, grainQueue[gts]);
         } else {
           var g = grainQueue[gts];
