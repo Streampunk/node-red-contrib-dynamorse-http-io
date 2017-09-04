@@ -1,6 +1,6 @@
 # node-red-contrib-dynamorse-http-io
 
-A set of nodes for IBM's [Node-RED](http://nodered.org) that support http input/output. This package is a component of Streampunk Media's [dynamorse](https://github.com/Streampunk/node-red-contrib-dynamorse-core#readme) suite.
+A set of nodes for IBM's [Node-RED](http://nodered.org) that support http input/output, an implementation of the draft [arachnid](https://github.com/Streampunk/arachnid) protocol. This package is a component of Streampunk Media's [dynamorse](https://github.com/Streampunk/node-red-contrib-dynamorse-core#readme) suite. 
 
 ## Installation
 
