@@ -65,6 +65,16 @@ function versionDiffMs (smaller, bigger) {
   return bgMs - smMs;
 }
 
+function checkNMOSFlow(nodeAPI, flowID) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      nodeAPI.getResource(flowID, 'flow')
+      .then(f => resolve(f), 
+            e => resolve(null));
+    }, 10);
+  });
+}
+
 const mimeMatch = /^\s*(\w+)\/([\w\-]+)/;
 const paramMatch = /\b(\w+)=(\S+)\b/g;
 
@@ -72,9 +82,6 @@ module.exports = function (RED) {
   function SpmHTTPIn (config) {
     RED.nodes.createNode(this, config);
     redioactive.Funnel.call(this, config);
-
-    if (!this.context().global.get('updated'))
-      return this.log('Waiting for global context to be updated.');
 
     var protocol = (config.protocol === 'HTTP') ? http : https;
     var node = this;
@@ -92,12 +99,11 @@ module.exports = function (RED) {
     var nodeAPI = this.context().global.get('nodeAPI');
     var localName = config.name || `${config.type}-${config.id}`;
     var localDescription = config.description || `${config.type}-${config.id}`;
-    var pipelinesID = config.device ?
-      RED.nodes.getNode(config.device).nmos_id :
-      this.context().global.get('pipelinesID');
-    var sourceID = uuid.v4();
-    var flowID = uuid.v4();
-    var flow = null; var source = null; var recvr = null;
+    var genericID = this.context().global.get('genericID');
+    var sourceID = null;
+    var flowID = null;
+    var flows = null;
+    var recvr = null;
     var tags = {};
     var totalConcurrent = +config.parallel;
     var ended = false;
@@ -105,39 +111,57 @@ module.exports = function (RED) {
     function makeFlowAndSource (headers) {
       var contentType = headers['content-type'];
       var mime = contentType.match(mimeMatch);
-      tags = { format : [ mime[1] ], encodingName : [ mime[2] ] };
+      tags = { format : mime[1], encodingName : mime[2] };
       var parameters = contentType.match(paramMatch);
       parameters.forEach(p => {
-         var splitP = p.split('=');
-         if (splitP[0] === 'rate') splitP[0] = 'clockRate';
-         tags[splitP[0]] = [ splitP[1] ];
+        var splitP = p.split('=');
+        if (splitP[0] === 'rate') splitP[0] = 'clockRate';
+        tags[splitP[0]] = +splitP[1];
+        if (isNaN(tags[splitP[0]])) tags[splitP[0]] = splitP[1];
+        if (splitP[0] === 'interlace') tags[splitP[0]] = (splitP[1] === 'true');
       });
-      if (tags.encodingName[0] === 'x-v210') {
-        tags.clockRate = [ '90000' ];
-        tags.encodingName = [ 'raw' ];
-        tags.packing = [ 'v210' ];
-      } else if (tags.encodingName[0] === 'raw') {
-        tags.clockRate = [ '90000' ];
-        tags.packing = [ 'pgroup' ];
+      if (tags.encodingName === 'x-v210') {
+        tags.clockRate = 90000;
+        tags.encodingName = 'raw';
+        tags.packing = 'v210';
+      } else if (tags.encodingName === 'raw') {
+        tags.clockRate = 90000;
+        tags.packing = 'pgroup';
       }
       if (headers['arachnid-packing'])
-        tags.packing = [ headers['arachnid-packing'] ];
+        tags.packing = headers['arachnid-packing'];
 
-      var senderID = headers['arachnid-senderid'];
-      senderID = (senderID === undefined) ? null : { sender_id : senderID };
-      source = new ledger.Source(sourceID, null, localName, localDescription,
-        "urn:x-nmos:format:" + tags.format[0], null, null, pipelinesID, null);
-      flow = new ledger.Flow(flowID, null, localName, localDescription,
-        "urn:x-nmos:format:" + tags.format[0], tags, source.id, null);
-      recvr = new ledger.Receiver(null, null, localName, localDescription,
-        "urn:x-nmos:format:" + tags.format[0], null, tags,
-        pipelinesID, ledger.transports.dash, senderID);
-      return nodeAPI.putResource(source)
-      .then(() => nodeAPI.putResource(flow))
-      .then(() => nodeAPI.putResource(recvr))
-      .catch(err => {
-        node.error(`Unable to register resource : ${err}`);
-      });
+      if (tags.format === 'video')
+        flows = node.makeCable({ video : [{ tags : tags }], backPressure : 'video[0]' });
+      else
+        flows = node.makeCable({ audio : [{ tags : tags }], backPressure : 'audio[0]' });
+      flowID = node.flowID();
+      sourceID = node.sourceID();
+      
+      return Promise.resolve()
+      .then(() => {
+        const numTries = 10;
+        let chain = Promise.resolve(null);
+        for (let i=0; i<numTries; ++i) {
+          chain = chain.then(f => {
+            if (null === f) return checkNMOSFlow(nodeAPI, flowID);
+            else return Promise.resolve(f);
+          });
+        }
+        return chain;
+      })
+      .then (f => {
+        var senderID = headers['arachnid-senderid'];
+        senderID = (senderID === undefined) ? null : { sender_id : senderID };
+        recvr = new ledger.Receiver(null, null, localName, localDescription,
+          "urn:x-nmos:format:" + f.tags.format, null, f.tags,
+          genericID, ledger.transports.dash, senderID);
+
+        return nodeAPI.putResource(recvr)
+          .then(x => node.log(`Registered NMOS receiver ${recvr.id}`))
+          .catch(err => node.warn(`Unable to register NMOS receiver: ${err}`))
+      })
+      .catch (e => console.log(e));
     };
 
     var keepAliveAgent = new protocol.Agent({keepAlive : true });
@@ -202,7 +226,7 @@ module.exports = function (RED) {
         if (res.statusCode === 200) {
           var grainData = [];
           nextRequest[x] = res.headers['arachnid-ptporigin'];
-          var flowPromise = (flow) ? Promise.resolve() : makeFlowAndSource(res.headers);
+          var flowPromise = (flows) ? Promise.resolve() : makeFlowAndSource(res.headers);
           flowPromise.then(() => {
             res.on('data', data => {
               grainData.push(data)
@@ -450,7 +474,7 @@ module.exports = function (RED) {
                   }
                 }
               };
-            }, (flow === null) ? 1000 : 0);
+            }, (flows === null) ? 1000 : 0);
           } else {
             this.log('Not responding to generator.');
           }

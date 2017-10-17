@@ -75,15 +75,23 @@ function clearCacheBefore(c, t) {
   return s;
 }
 
+function checkNMOSFlowID(nodeAPI, flowID) {
+  return new Promise((resolve, reject) => {
+    setImmediate(() => {
+      nodeAPI.getResource(flowID, 'flow')
+      .then(f => resolve(f.id), 
+            e => resolve(''));
+    });
+  });
+}
+
 module.exports = function (RED) {
   var count = 0;
   function SpmHTTPOut (config) {
     RED.nodes.createNode(this, config);
     redioactive.Spout.call(this, config);
     var node = this
-    if (!this.context().global.get('updated'))
-      return this.log('Waiting for global context to be updated.');
-    var srcFlow = null;
+    var srcTags = null;
     this.on('error', err => {
       node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`)
     });
@@ -97,9 +105,9 @@ module.exports = function (RED) {
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
     var contentType = 'application/octet-stream';
     var packing = 'raw';
-    var started = false;
-    var app = null; var server = null;
-    var sender = null; var flow = null;
+    var app = null; 
+    var server = null;
+    var sender = null;
     var senderID = uuid.v4();
     var ledger = this.context().global.get('ledger');
     var nodeAPI = this.context().global.get('nodeAPI');
@@ -122,50 +130,74 @@ module.exports = function (RED) {
       });
     });
     this.each((x, next) => {
+      if (!Grain.isGrain(x)) {
+        node.warn(`HTTP out received something that is not a grain: ${x}`);
+        return next();
+      }
       // this.log(`RECD-NEXT ${x} ${started}`);
-      if (started === false) {
-        node.getNMOSFlow(x, (err, f) => {
-          if (err) return node.warn("Failed to resolve NMOS flow.");
-          else {
-            flow = f;
-            var encodingName = f.tags.encodingName[0];
-            if (f.tags.packing && f.tags.packing[0].toLowerCase() === 'v210') encodingName = 'x-v210';
-            if (f.tags.format[0] === 'video' &&
-                (encodingName === 'raw' || encodingName === 'x-v210' || encodingName === 'h264' )) {
-              contentType = `video/${encodingName}; sampling=${f.tags.sampling[0]}; ` +
-               `width=${f.tags.width[0]}; height=${f.tags.height[0]}; depth=${f.tags.depth[0]}; ` +
-               `colorimetry=${f.tags.colorimetry[0]}; interlace=${f.tags.interlace[0]}`;
-            } else {
-              contentType = `${f.tags.format[0]}/${f.tags.encodingName[0]}`;
-              if (f.tags.clockRate) contentType += `; rate=${f.tags.clockRate[0]}`;
-              if (f.tags.channels) contentType += `; channels=${f.tags.channels[0]}`;
-            };
-          }
-          packing = (f.tags.packing) ? f.tags.packing[0] : 'raw';
+      var nextJob = (srcTags) ? 
+        Promise.resolve(x) :
+        this.findCable(x).then(cable => {
+          let isVideo = Array.isArray(cable[0].video) && cable[0].video.length > 0;
+          let isAudio = Array.isArray(cable[0].audio) && cable[0].audio.length > 0;
+          srcTags = isVideo ? cable[0].video[0].tags : cable[0].audio[0].tags;
+          let flowID = isVideo ? cable[0].video[0].flowID : cable[0].audio[0].flowID;
+
+          var encodingName = srcTags.encodingName;
+          if (srcTags.packing && srcTags.packing.toLowerCase() === 'v210') encodingName = 'x-v210';
+          if (srcTags.format === 'video' &&
+              (encodingName === 'raw' || encodingName === 'x-v210' || encodingName === 'h264' )) {
+            contentType = `video/${encodingName}; sampling=${srcTags.sampling}; ` +
+             `width=${srcTags.width}; height=${srcTags.height}; depth=${srcTags.depth}; ` +
+             `colorimetry=${srcTags.colorimetry}; interlace=${srcTags.interlace}`;
+          } else {
+            contentType = `${srcTags.format}/${srcTags.encodingName}`;
+            if (srcTags.clockRate) contentType += `; rate=${srcTags.clockRate}`;
+            if (srcTags.channels) contentType += `; channels=${srcTags.channels}`;
+          };
+          packing = (srcTags.packing) ? srcTags.packing : 'raw';
+          node.log(`content type ${contentType}`);
+          
           var localName = config.name || `${config.type}-${config.id}`;
           var localDescription = config.description || `${config.type}-${config.id}`;
           // TODO support regeneration of flows
           sender = new ledger.Sender(senderID, null, localName, localDescription,
-            (flow) ? flow.id : null, "urn:x-nmos:transport:dash", // TODO add arachnid-specific transport
+            flowID, "urn:x-nmos:transport:dash", // TODO add arachnid-specific transport
             genericID, // TODO do better at binding to an address
             `http://${Net.getFirstRealIP4Interface().address}:${config.port}/${config.path}`);
-          nodeAPI.putResource(sender).catch(node.warn);
-          // node.log(`content type ${contentType}`);
-        });
-        if (app) {
-          server = ((config.protocol === 'HTTP') ?
-            protocol.createServer(app) : protocol.createServer(options, app))
-          .listen(config.port, err => {
-            if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
-            node.log(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
-          });
-          server.on('error', this.warn);
-        }
-        for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
-        begin = process.hrtime();
-        started = true;
-      };
-      if (Grain.isGrain(x)) {
+
+          if (app) {
+            server = ((config.protocol === 'HTTP') ?
+              protocol.createServer(app) : protocol.createServer(options, app))
+            .listen(config.port, err => {
+              if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
+              node.log(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
+            });
+            server.on('error', this.warn);
+          }
+          for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
+          return Promise.resolve(flowID);
+        })
+        .then (flowID => {
+          // wait for source flowID to be registered in NMOS before registering sender
+          const numTries = 10;
+          let chain = Promise.resolve('');
+          for (let i=0; i<numTries; ++i) {
+            chain = chain.then((id) => {
+              if ('' !== id) return Promise.resolve(id);
+              else return checkNMOSFlowID(nodeAPI, flowID);
+            });
+          }
+          return chain;
+        })
+        .then ((id) => {
+          nodeAPI.putResource(sender)
+          .then(x => node.log(`Registered NMOS sender ${senderID}`))
+          .catch(err => node.warn(`Unable to register NMOS sender: ${err}`))
+        })
+        .then (() => begin = process.hrtime());
+
+      nextJob.then(() => {
         grainCache.push({ grain : x,
           nextFn : (config.backpressure === true) ? next : nop });
         if (grainCache.length > config.cacheSize) {
@@ -178,96 +210,95 @@ module.exports = function (RED) {
               (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
           setTimeout(next, diff);
         }
-      } else {
-        node.warn(`HTTP out received something that is not a grain: ${x}`);
-        next();
-      }
-
-      if (config.mode === 'push') {
-        var sendMore = () => {
-          var newThreadCount = config.parallel - activeThreads;
-          newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
-          // this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
-          var left = grainCache.slice(0, newThreadCount);
-          var right = grainCache.slice(newThreadCount);
-          grainCache = right;
-          left.forEach(gn => {
-            activeThreads++;
-            var g = gn.grain;
-            var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
-            var options = {
-              agent: keepAliveAgent,
-              rejectUnauthorized: false,
-              hostname: fullURL.hostname,
-              port: fullURL.port,
-              path: `${fullURL.path}/${ts}`,
-              method: 'PUT',
-              headers: {
-                'Content-Type': contentType,
-                'Content-Length': g.buffers[0].length,
-                'Arachnid-PTPOrigin': ts,
-                'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
-                'Arachnid-FlowID': uuid.unparse(g.flow_id),
-                'Arachnid-SourceID': uuid.unparse(g.source_id),
-                'Arachnid-SenderID': senderID,
-                'Arachnid-Packing': packing
-              }
-            };
-            if (g.timecode)
-              options.headers['Arachnid-Timecode'] =
-                Grain.prototype.formatTimecode(g.timecode);
-            if (g.duration)
-              options.headers['Arachnid-GrainDuration'] =
-                Grain.prototype.formatDuration(g.duration);
-
-            // this.log(`About to make request ${options.path}.`);
-            var req = protocol.request(options, res => {
-              activeThreads--;
-              // this.log(`Response received ${activeThreads}.`);
-              if (res.statusCode === 429) {
-                setTimeout(() => {
-                  grainCache.push(gn);
-                  grainCache = reorderCache(grainCache);
-                  sendMore();
-                }, 5);
-                return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
-              }
-              if (res.statusCode === 409) {
-                gn.nextFn();
-                return this.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
-              }
-              if (res.statusCode === 400) {
-                var olderCache = grainCache;
-                grainCache = clearCacheBefore(grainCache, ts);
-                for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
-                  olderCache[x].nextFn();
+          
+        if (config.mode === 'push') {
+          var sendMore = () => {
+            var newThreadCount = config.parallel - activeThreads;
+            newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
+            // this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
+            var left = grainCache.slice(0, newThreadCount);
+            var right = grainCache.slice(newThreadCount);
+            grainCache = right;
+            left.forEach(gn => {
+              activeThreads++;
+              var g = gn.grain;
+              var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
+              var options = {
+                agent: keepAliveAgent,
+                rejectUnauthorized: false,
+                hostname: fullURL.hostname,
+                port: fullURL.port,
+                path: `${fullURL.path}/${ts}`,
+                method: 'PUT',
+                headers: {
+                  'Content-Type': contentType,
+                  'Content-Length': g.buffers[0].length,
+                  'Arachnid-PTPOrigin': ts,
+                  'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
+                  'Arachnid-FlowID': uuid.unparse(g.flow_id),
+                  'Arachnid-SourceID': uuid.unparse(g.source_id),
+                  'Arachnid-SenderID': senderID,
+                  'Arachnid-Packing': packing
                 }
-                return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
-              }
-              res.on('data', () => {});
-              res.on('end', () => {
-                highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
-                // this.log(`Response ${req.path} has ended.`);
-                gn.nextFn();
-                if (activeThreads <= 0 && ended === true && grainCache.length === 0) {
-                  setImmediate(() => sendEnd(highWaterMark));
+              };
+              if (g.timecode)
+                options.headers['Arachnid-Timecode'] =
+                  Grain.prototype.formatTimecode(g.timecode);
+              if (g.duration)
+                options.headers['Arachnid-GrainDuration'] =
+                  Grain.prototype.formatDuration(g.duration);
+  
+              // this.log(`About to make request ${options.path}.`);
+              var req = protocol.request(options, res => {
+                activeThreads--;
+                // this.log(`Response received ${activeThreads}.`);
+                if (res.statusCode === 429) {
+                  setTimeout(() => {
+                    grainCache.push(gn);
+                    grainCache = reorderCache(grainCache);
+                    sendMore();
+                  }, 5);
+                  return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
                 }
+                if (res.statusCode === 409) {
+                  gn.nextFn();
+                  return this.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
+                }
+                if (res.statusCode === 400) {
+                  var olderCache = grainCache;
+                  grainCache = clearCacheBefore(grainCache, ts);
+                  for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
+                    olderCache[x].nextFn();
+                  }
+                  return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
+                }
+                res.on('data', () => {});
+                res.on('end', () => {
+                  highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
+                  // this.log(`Response ${req.path} has ended.`);
+                  gn.nextFn();
+                  if (activeThreads <= 0 && ended === true && grainCache.length === 0) {
+                    setImmediate(() => sendEnd(highWaterMark));
+                  }
+                });
+                res.on('error', e => {
+                  this.warn(`Received error when handling push result: ${e}`);
+                });
               });
-              res.on('error', e => {
-                this.warn(`Received error when handling push result: ${e}`);
+  
+              req.end(g.buffers[0]);
+  
+              req.on('error', e => {
+                this.warn(`Received error when making a push grain request: ${e}`);
+                activeThreads--;
               });
             });
-
-            req.end(g.buffers[0]);
-
-            req.on('error', e => {
-              this.warn(`Received error when making a push grain request: ${e}`);
-              activeThreads--;
-            });
-          });
-        };
-        dnsPromise = dnsPromise.then(sendMore);
-      } // End push
+          };
+          dnsPromise = dnsPromise.then(sendMore);
+        } // End push
+      }).catch(err => {
+        this.error(`spm-http-out received error: ${err}`);
+      });
     });
     if (config.mode === 'pull') {
       app = express();

@@ -21,7 +21,6 @@
     defaults: {
       name: { value : "" },
       description : { value : "" },
-      device : { value : "", type : "device" },
       protocol : { value : 'HTTP' },
       mode : { value : 'pull' },
       pushURL : { value : '' },
@@ -56,10 +55,6 @@
   <div class="form-row">
     <label for="node-input-regenerate"><i class="fa fa-clock-o"></i> regenerate?</label>
     <input type="checkbox" id="node-input-regenerate">
-  </div>
-  <div class="form-row">
-    <label for="node-input-device"><i class="fa fa-tablet"></i> device</label>
-    <input type="text" id="node-input-device">
   </div>
   <div class="form-row">
     <label for="node-input-protocol"><i class="fa fa-video-camera"></i> protocol</label>
@@ -137,10 +132,6 @@
     <td><i class="fa fa-clock-o"></i> regenerate?</td>
     <td>Should grain metadata be regenerated? Otherwise, it will be passed on
     unmodified.</td>
-   </tr>
-   <tr>
-    <td><i class="fa fa-tablet"></i> device</td>
-    <td>Select or create an NMOS device for this source &amp; flow.</td>
    </tr>
    <tr>
     <td><i class="fa fa-video-camera"></i> protocol</td>
