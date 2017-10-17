@@ -16,25 +16,23 @@
 var redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
 var util = require('util');
 var express = require('express');
-var bodyParser = require('body-parser');
+// var bodyParser = require('body-parser');
 var http = require('http');
 var https = require('https');
 var fs = require('fs');
 var Grain = require('node-red-contrib-dynamorse-core').Grain;
 var uuid = require('uuid');
-var Net = require('../util/Net.js');
 var dns = require('dns');
 var url = require('url');
 
 const variation = 1; // Grain timing requests may vary +-1ms
-const nineZeros = '000000000';
 const nop = () => {};
 
 var statusError = (status, message) => {
   var e = new Error(message);
   e.status = status;
   return e;
-}
+};
 
 function msOriginTs(g) {
   return (g.ptpOrigin.readUIntBE(0, 6) * 1000) +
@@ -69,31 +67,21 @@ function reorderCache(c) {
 function clearCacheBefore(c, t) {
   var s = c;
   while (s.length > 0 && compareVersions(
-      Grain.prototype.formatTimestamp(s[0].grain.ptpOrigin), t) < 0) {
+    Grain.prototype.formatTimestamp(s[0].grain.ptpOrigin), t) < 0) {
     s = s.slice(1);
   }
   return s;
 }
 
-function checkNMOSFlowID(nodeAPI, flowID) {
-  return new Promise((resolve, reject) => {
-    setImmediate(() => {
-      nodeAPI.getResource(flowID, 'flow')
-      .then(f => resolve(f.id), 
-            e => resolve(''));
-    });
-  });
-}
-
 module.exports = function (RED) {
-  var count = 0;
+  // var count = 0;
   function SpmHTTPOut (config) {
     RED.nodes.createNode(this, config);
     redioactive.Spout.call(this, config);
-    var node = this
+    var node = this;
     var srcTags = null;
     this.on('error', err => {
-      node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`)
+      node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`);
     });
     var protocol = (config.protocol === 'HTTP') ? http : https;
     var options = (config.protocol === 'HTTP') ? {} : {
@@ -109,9 +97,6 @@ module.exports = function (RED) {
     var server = null;
     var sender = null;
     var senderID = uuid.v4();
-    var ledger = this.context().global.get('ledger');
-    var nodeAPI = this.context().global.get('nodeAPI');
-    var genericID = this.context().global.get('genericID');
     var begin = null;
     var grainCount = 0;
     var ended = false;
@@ -123,7 +108,7 @@ module.exports = function (RED) {
     var fullURL = url.parse(fullPath);
     var keepAliveAgent = new protocol.Agent({keepAlive : true });
     var dnsPromise = (config.mode === 'pull') ? null : new Promise((resolve, reject) => {
-      dns.lookup(fullURL.hostname, (err, addr, family) => {
+      dns.lookup(fullURL.hostname, (err, addr/*, family*/) => {
         if (err) return reject(err);
         fullURL.hostname = addr;
         resolve(addr);
@@ -139,9 +124,7 @@ module.exports = function (RED) {
         Promise.resolve(x) :
         this.findCable(x).then(cable => {
           let isVideo = Array.isArray(cable[0].video) && cable[0].video.length > 0;
-          let isAudio = Array.isArray(cable[0].audio) && cable[0].audio.length > 0;
           srcTags = isVideo ? cable[0].video[0].tags : cable[0].audio[0].tags;
-          let flowID = isVideo ? cable[0].video[0].flowID : cable[0].audio[0].flowID;
 
           var encodingName = srcTags.encodingName;
           if (srcTags.packing && srcTags.packing.toLowerCase() === 'v210') encodingName = 'x-v210';
@@ -154,48 +137,22 @@ module.exports = function (RED) {
             contentType = `${srcTags.format}/${srcTags.encodingName}`;
             if (srcTags.clockRate) contentType += `; rate=${srcTags.clockRate}`;
             if (srcTags.channels) contentType += `; channels=${srcTags.channels}`;
-          };
+          }
           packing = (srcTags.packing) ? srcTags.packing : 'raw';
           node.log(`content type ${contentType}`);
           
-          var localName = config.name || `${config.type}-${config.id}`;
-          var localDescription = config.description || `${config.type}-${config.id}`;
-          // TODO support regeneration of flows
-          sender = new ledger.Sender(senderID, null, localName, localDescription,
-            flowID, "urn:x-nmos:transport:dash", // TODO add arachnid-specific transport
-            genericID, // TODO do better at binding to an address
-            `http://${Net.getFirstRealIP4Interface().address}:${config.port}/${config.path}`);
-
           if (app) {
             server = ((config.protocol === 'HTTP') ?
               protocol.createServer(app) : protocol.createServer(options, app))
-            .listen(config.port, err => {
-              if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
-              node.log(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
-            });
+              .listen(config.port, err => {
+                if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
+                node.log(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
+              });
             server.on('error', this.warn);
           }
           for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
-          return Promise.resolve(flowID);
-        })
-        .then (flowID => {
-          // wait for source flowID to be registered in NMOS before registering sender
-          const numTries = 10;
-          let chain = Promise.resolve('');
-          for (let i=0; i<numTries; ++i) {
-            chain = chain.then((id) => {
-              if ('' !== id) return Promise.resolve(id);
-              else return checkNMOSFlowID(nodeAPI, flowID);
-            });
-          }
-          return chain;
-        })
-        .then ((id) => {
-          nodeAPI.putResource(sender)
-          .then(x => node.log(`Registered NMOS sender ${senderID}`))
-          .catch(err => node.warn(`Unable to register NMOS sender: ${err}`))
-        })
-        .then (() => begin = process.hrtime());
+          begin = process.hrtime();
+        });
 
       nextJob.then(() => {
         grainCache.push({ grain : x,
@@ -317,7 +274,7 @@ module.exports = function (RED) {
           clients : Object.keys(clientCache)
         });
       });
-      app.get(config.path + "/:ts", (req, res, next) => {
+      app.get(config.path + '/:ts', (req, res, next) => {
         // this.log(`Received request for ${req.params.ts}.`);
         var nextGrain = grainCache[grainCache.length - 1].nextFn;
         var clientID = req.headers['arachnid-clientid'];
@@ -365,10 +322,10 @@ module.exports = function (RED) {
               created : Date.now(),
               items : grainCache.slice(-6)
             };
-          };
+          }
           if (config.backpressure === true && Object.keys(clientCache).length > 1) {
             delete clientCache[clientID];
-            return next(statusError(400, `Only one client at a time is possible with back pressure enabled.`));
+            return next(statusError(400, 'Only one client at a time is possible with back pressure enabled.'));
           }
           var items = clientCache[clientID].items;
           var itemIndex = items.length + ts - 1;
@@ -376,9 +333,9 @@ module.exports = function (RED) {
             return next(statusError(404, 'Insufficient grains in cache to provide that number of parallel threads.'));
           }
           g = items[itemIndex];
-        //  this.log(`Redirecting ${ts} to ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}.`);
+          //  this.log(`Redirecting ${ts} to ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}.`);
           return res.redirect(Grain.prototype.formatTimestamp(g.grain.ptpOrigin));
-        };
+        }
         // this.log('Got to b4 setting headers.');
         if (clientID)
           res.setHeader('Arachnid-ClientID', clientID);
@@ -402,12 +359,11 @@ module.exports = function (RED) {
         res.setHeader('Content-Length', data.length);
         if (req.method === 'HEAD') return res.end();
 
-        var startSend = process.hrtime();
         res.send(data);
         if (ended === false) nextGrain();
       });
 
-      app.use((err, req, res, next) => {
+      app.use((err, req, res/*, next*/) => {
         node.warn(err);
         if (err.status) {
           res.status(err.status).json({
@@ -424,7 +380,7 @@ module.exports = function (RED) {
         }
       });
 
-      app.use((req, res, next) => {
+      app.use((req, res/*, next*/) => {
         res.status(404).json({
           code : 404,
           error : `Could not find the requested resource '${req.path}'.`,
@@ -434,7 +390,7 @@ module.exports = function (RED) {
     } // End pull
 
     function sendEnd(hwm) {
-      var req = protocol.request({
+      protocol.request({
         agent: keepAliveAgent,
         rejectUnauthorized: false,
         hostname: fullURL.hostname,
@@ -467,7 +423,7 @@ module.exports = function (RED) {
           }
         });
       }, 1000);
-    };
+    }
 
     this.done(() => {
       node.log('Closing the app and/or ending the stream!');
@@ -478,5 +434,5 @@ module.exports = function (RED) {
     });
   }
   util.inherits(SpmHTTPOut, redioactive.Spout);
-  RED.nodes.registerType("spm-http-out", SpmHTTPOut);
-}
+  RED.nodes.registerType('spm-http-out', SpmHTTPOut);
+};
