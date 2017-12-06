@@ -111,7 +111,7 @@ module.exports = function (RED) {
       }
       if (headers['arachnid-packing'])
         tags.packing = headers['arachnid-packing'];
-      
+
       let cable = {};
       cable[tags.format] = [{ tags : tags }];
       cable.backPressure = `${tags.format}[0]`;
@@ -130,7 +130,7 @@ module.exports = function (RED) {
     var endCount = 0;
     var endTimeout = null;
     var runNext = (x, push, next) => {
-      // var requestTimer = process.hrtime();
+      var requestTimer = process.hrtime();
       // this.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
       var req = protocol.request({
         rejectUnauthorized: false,
@@ -170,12 +170,13 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 410) {
-          node.error(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
-          push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
+          node.warn(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
+          // push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
           nextRequest =
             [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
           activeThreads[x] = false;
-          return;
+          clientID = 'cid' + Date.now();
+          return next();
         }
         if (res.statusCode === 503) {
           node.log(`Source stream has ended - thread ${x}.`);
@@ -197,7 +198,7 @@ module.exports = function (RED) {
               // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
             });
             res.on('end', () => {
-              // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+              console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
               var joined = Buffer.concat(grainData, position);
               //nextRequest[x] = res.headers['arachnid-nextbythread'];
               var ptpOrigin = res.headers['arachnid-ptporigin'];
@@ -249,7 +250,7 @@ module.exports = function (RED) {
         next();
       });
       req.end();
-      // requestTimer = process.hrtime();
+      requestTimer = process.hrtime();
     };
 
     var grainQueue = { };
@@ -262,12 +263,11 @@ module.exports = function (RED) {
         compareVersions(a, b) <= 0 ? a : b);
       // console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
 
-      console.log('REGEN', config.regenerate);
       Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
         .sort(compareVersions)
         .forEach(gts => {
           if (!config.regenerate) {
-            console.log('>>> PUSHING', config.regenerate);
+            // console.log('>>> PUSHING', config.regenerate);
             push(null, grainQueue[gts]);
           } else {
             var g = grainQueue[gts];
