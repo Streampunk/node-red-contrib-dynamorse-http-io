@@ -13,17 +13,17 @@
   limitations under the License.
 */
 
-var redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
-var util = require('util');
-var express = require('express');
+const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
+const util = require('util');
+const express = require('express');
 // var bodyParser = require('body-parser');
-var http = require('http');
-var https = require('https');
-var fs = require('fs');
-var Grain = require('node-red-contrib-dynamorse-core').Grain;
-var uuid = require('uuid');
-var dns = require('dns');
-var url = require('url');
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const Grain = require('node-red-contrib-dynamorse-core').Grain;
+const uuid = require('uuid');
+const dns = require('dns');
+const url = require('url');
 
 const variation = 1; // Grain timing requests may vary +-1ms
 const nop = () => {};
@@ -93,7 +93,7 @@ module.exports = function (RED) {
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
     var contentType = 'application/octet-stream';
     var packing = 'raw';
-    var app = null; 
+    var app = null;
     var server = null;
     var sender = null;
     var senderID = uuid.v4();
@@ -120,7 +120,7 @@ module.exports = function (RED) {
         return next();
       }
       // this.log(`RECD-NEXT ${x} ${started}`);
-      var nextJob = (srcTags) ? 
+      var nextJob = (srcTags) ?
         Promise.resolve(x) :
         this.findCable(x).then(cable => {
           let isVideo = Array.isArray(cable[0].video) && cable[0].video.length > 0;
@@ -140,7 +140,7 @@ module.exports = function (RED) {
           }
           packing = (srcTags.packing) ? srcTags.packing : 'raw';
           node.log(`content type ${contentType}`);
-          
+
           if (app) {
             server = ((config.protocol === 'HTTP') ?
               protocol.createServer(app) : protocol.createServer(options, app))
@@ -167,7 +167,7 @@ module.exports = function (RED) {
               (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
           setTimeout(next, diff);
         }
-          
+
         if (config.mode === 'push') {
           var sendMore = () => {
             var newThreadCount = config.parallel - activeThreads;
@@ -204,7 +204,7 @@ module.exports = function (RED) {
               if (g.duration)
                 options.headers['Arachnid-GrainDuration'] =
                   Grain.prototype.formatDuration(g.duration);
-  
+
               // this.log(`About to make request ${options.path}.`);
               var req = protocol.request(options, res => {
                 activeThreads--;
@@ -242,9 +242,9 @@ module.exports = function (RED) {
                   this.warn(`Received error when handling push result: ${e}`);
                 });
               });
-  
+
               req.end(g.buffers[0]);
-  
+
               req.on('error', e => {
                 this.warn(`Received error when making a push grain request: ${e}`);
                 activeThreads--;

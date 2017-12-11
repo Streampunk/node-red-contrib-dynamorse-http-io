@@ -32,10 +32,10 @@
       cacheSize : { value : 10, validate : RED.validators.number() },
       fragments : { value : 1, validate : RED.validators.number() }
     },
-    inputs:0,
-    outputs:1,
+    inputs: 0,
+    outputs: 1,
     icon: "funnel.png",
-    label: function() {
+    label: function () {
       return this.name || "spm-http-in";
     }
   });
@@ -156,12 +156,16 @@
     requests in push mode.</td>
    </tr>
    <tr>
+    <td><i class="fa fa-archive" aria-hidden="true"></i> cache size</td>
+    <td>Maxumum number of elements to cache when pushing.</td>
+   </tr>
+   <tr>
     <td><i class="fa fa-fighter-jet" aria-hidden="true"></i> parallel</td>
-    <td>Number of parallel pipelines of HTTP to make or receive.</td>
+    <td>Number of parallel pipelines of HTTP to request (pull only).</td>
    </tr>
    <tr>
     <td><i class="fa fa-columns" aria-hidden="true"></i> fragments</td>
-    <td>Number of equal-sized fragments to sub-divide each grain into.</td>
+    <td>Number of equal-sized fragments to sub-divide each grain into. (Not implemented.)</td>
    </tr>
   </table>
   </div>

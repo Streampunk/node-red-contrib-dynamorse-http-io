@@ -13,21 +13,22 @@
   limitations under the License.
 */
 
-var redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
-var util = require('util');
-var express = require('express');
+const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
+const util = require('util');
+const express = require('express');
 // var bodyParser = require('body-parser');
-var http = require('http');
-var https = require('https');
-var fs = require('fs');
-var Grain = require('node-red-contrib-dynamorse-core').Grain;
-var dns = require('dns');
-var url = require('url');
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const Grain = require('node-red-contrib-dynamorse-core').Grain;
+const dns = require('dns');
+const url = require('url');
 
 // Maximum drift between high water mark and next request in ms
 // TODO calculate this from grain rate
 var maxDrift = 40 * 8;
 const nineZeros = '000000000';
+const minBufferSize = 10000;
 
 var statusError = (status, message) => {
   var e = new Error(message);
@@ -126,6 +127,17 @@ module.exports = function (RED) {
       return Promise.resolve();
     }
 
+    const buffers = [];
+    const bufferIdx = [];
+    for ( let x = 0 ; x < config.parallel ; x++) {
+      let threadBufs = [];
+      for ( let y = 0 ; y < config.maxBuffers ; y++ ) {
+        threadBufs.push(Buffer.alloc(minBufferSize));
+      }
+      buffers.push(threadBufs);
+      bufferIdx.push(0);
+    }
+
     var keepAliveAgent = new protocol.Agent({keepAlive : true });
     var endCount = 0;
     var endTimeout = null;
@@ -146,6 +158,8 @@ module.exports = function (RED) {
         // console.log('Response received after', process.hrtime(requestTimer));
         // var count = 0;
         var position = 0;
+        var currentIdx = bufferIdx[x] % buffers[x].length;
+        var currentBuf = buffers[x][currentIdx];
         if (res.statusCode === 302) {
           var location = res.headers['location'];
           node.log(`Being redirected to ${location}.`);
@@ -187,41 +201,44 @@ module.exports = function (RED) {
           return;
         }
         if (res.statusCode === 200) {
-          var grainData = [];
+          let contentLength = +res.headers['content-length'];
+          if (currentBuf.length < contentLength) {
+            node.log(`Extending buffer ${currentIdx} for thread ${x} from ${currentBuf.length} bytes to ${contentLength} bytes.`);
+            currentBuf = Buffer.alloc(contentLength);
+            buffers[x][currentIdx] = currentBuf;
+          }
           nextRequest[x] = res.headers['arachnid-ptporigin'];
           var flowPromise = (flows) ? Promise.resolve() : makeFlowAndSource(res.headers);
           flowPromise.then(() => {
             res.on('data', data => {
-              grainData.push(data);
-              position += data.length;
+              position += data.copy(currentBuf, position);
               // count++;
               // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
             });
             res.on('end', () => {
-              console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
-              var joined = Buffer.concat(grainData, position);
-              //nextRequest[x] = res.headers['arachnid-nextbythread'];
-              var ptpOrigin = res.headers['arachnid-ptporigin'];
-              var ptpSync = res.headers['arachnid-ptpsync'];
-              var duration = res.headers['arachnid-grainduration'];
+              let ptpOrigin = res.headers['arachnid-ptporigin'];
+              let ptpSync = res.headers['arachnid-ptpsync'];
+              let duration = res.headers['arachnid-grainduration'];
               // TODO fix up regeneration
-              var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-              var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-              var tc = res.headers['arachnid-timecode'];
-              var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
-                gSourceID, duration); // regenerate time as emitted
+              let gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+              let gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+              let tc = res.headers['arachnid-timecode'];
+              let g = new Grain([ currentBuf.slice(0, position) ], ptpSync,
+                ptpOrigin, tc, gFlowID, gSourceID, duration); // regenerate time as emitted
 
-              var durArray = g.getDuration();
-              var originArray = g.getOriginTimestamp();
+              let durArray = g.getDuration();
+              let originArray = g.getOriginTimestamp();
               originArray [1] = originArray[1] +
                 totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
               if (originArray[1] >= 1000000000)
                 originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
-              var nanos = (originArray[1]%1000000000).toString();
+              let nanos = (originArray[1]%1000000000).toString();
               nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
 
               pushGrains(g, push);
               activeThreads[x] = false;
+              bufferIdx[x]++;
+              console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
               next();
             });
           });
@@ -299,6 +316,7 @@ module.exports = function (RED) {
       var flowPromise = new Promise(f => { resolver = f; });
       var started = false;
       var app = express();
+      var bufferLoop = 0;
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
       app.put(config.path + '/:ts', (req, res, next) => {
@@ -312,7 +330,13 @@ module.exports = function (RED) {
         if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
           return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`));
         }
-        this.receiveQueue[req.params.ts] = { req: req, res: res };
+        let idx = [bufferLoop / buffers.length|0, bufferLoop++ % buffers.length];
+        this.receiveQueue[req.params.ts] = {
+          req: req,
+          res: res,
+          idx: idx,
+          buf: buffers[idx[0], idx[1]]
+        };
         if (started === false) {
           resolver(makeFlowAndSource(req.headers));
           started = true;
@@ -332,6 +356,8 @@ module.exports = function (RED) {
             .forEach(gts => {
               var req = this.receiveQueue[gts].req;
               var res = this.receiveQueue[gts].res;
+              var buf = this.receiceQueue[gts].buf;
+              var idx = this.receiveQueue[gts].idx;
               delete this.receiveQueue[gts];
               if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
                 next();
@@ -342,23 +368,26 @@ module.exports = function (RED) {
                   debug: 'No stack available.'
                 });
               }
-              var grainData = [];
               var position = 0;
+              let contentLength = req.headers['content-length'];
+              if (buf.length < contentLength) {
+                node.log(`Extending buffer ${idx} from ${buf.length} bytes to ${contentLength} bytes.`);
+                buf = Buffer.alloc(contentLength);
+                buffers[idx[0], idx[1]] = buf;
+              }
               req.on('data', data => {
-                grainData.push(data);
-                position += data.length;
+                position += data.copy(buf, position);
               });
               req.on('end', () => {
-                var joined = Buffer.concat(grainData, position);
-                var ptpOrigin = req.headers['arachnid-ptporigin'];
-                var ptpSync = req.headers['arachnid-ptpsync'];
-                var duration = req.headers['arachnid-grainduration'];
+                let ptpOrigin = req.headers['arachnid-ptporigin'];
+                let ptpSync = req.headers['arachnid-ptpsync'];
+                let duration = req.headers['arachnid-grainduration'];
                 // TODO fix up regeneration
-                var gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-                var gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-                var tc = req.headers['arachnid-timecode'];
-                var g = new Grain([ joined ], ptpSync, ptpOrigin, tc, gFlowID,
-                  gSourceID, duration); // regenerate time as emitted
+                let gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+                let gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+                let tc = req.headers['arachnid-timecode'];
+                let g = new Grain([ buf.slice(0, position) ], ptpSync, ptpOrigin,
+                  tc, gFlowID, gSourceID, duration); // regenerate time as emitted
                 push(null, g);
                 this.lowWaterMark = gts;
 
