@@ -13,9 +13,9 @@
     "uuid": "^2.0.1"
   },
   "devDependencies": {
-    "tape": "^4.8.0",
+    "dynamorse-test": "^0.2.0",
     "eslint": "^4.9.0",
-    "dynamorse-test": "^0.1.1"
+    "tape": "^4.8.0"
   },
   "scripts": {
     "test": "tape test/*Spec.js",

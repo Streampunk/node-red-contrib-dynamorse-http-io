@@ -304,10 +304,11 @@ module.exports = function (RED) {
               // nextGrain();
               // console.log('!!! Responding not found.');
               // this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
-              if (ended)
+              if (ended) {
                 return next(statusError(503, 'Stream has ended.'));
-              else
+              } else {
                 return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
+              }
             }
           }
         } else {
@@ -363,7 +364,7 @@ module.exports = function (RED) {
         if (ended === false) nextGrain();
       });
 
-      app.use((err, req, res/*, next*/) => {
+      app.use((err, req, res, next) => { // Must have four args, even if next not called
         node.warn(err);
         if (err.status) {
           res.status(err.status).json({
@@ -378,14 +379,16 @@ module.exports = function (RED) {
             debug: (err.stack) ? err.stack : 'No stack available.'
           });
         }
+        if (next === false) next(); // NOP to pass linting
       });
 
-      app.use((req, res/*, next*/) => {
+      app.use((req, res, next) => { // Assuming needs three args, even if next not called
         res.status(404).json({
           code : 404,
           error : `Could not find the requested resource '${req.path}'.`,
           debug : req.path
         });
+        if (next === false) next(); // NOP to pass linting
       });
     } // End pull
 

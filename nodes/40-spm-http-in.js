@@ -131,7 +131,7 @@ module.exports = function (RED) {
     const bufferIdx = [];
     for ( let x = 0 ; x < config.parallel ; x++) {
       let threadBufs = [];
-      for ( let y = 0 ; y < config.maxBuffers ; y++ ) {
+      for ( let y = 0 ; y < config.maxBuffer ; y++ ) {
         threadBufs.push(Buffer.alloc(minBufferSize));
       }
       buffers.push(threadBufs);
@@ -160,6 +160,7 @@ module.exports = function (RED) {
         var position = 0;
         var currentIdx = bufferIdx[x] % buffers[x].length;
         var currentBuf = buffers[x][currentIdx];
+        // console.log('>>>', x, buffers[0].map(x => x.length));
         if (res.statusCode === 302) {
           var location = res.headers['location'];
           node.log(`Being redirected to ${location}.`);
