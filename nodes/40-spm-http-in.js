@@ -459,7 +459,7 @@ module.exports = function (RED) {
         fullURL.hostname = addr;
         this.generator((push, next) => {
           if (ended === false) {
-            setTimeout(() => { // TODO do we need this setTimeout?
+            setImmediate(() => { // Converted from a setTimeout - not required with cables?
               // console.log('+++ DEBUG THREADS', activeThreads);
               for ( let i = 0 ; i < activeThreads.length ; i++ ) {
                 let drift = versionDiffMs(highWaterMark, nextRequest[i]);

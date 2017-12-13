@@ -65,7 +65,8 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
   numPushes: 10,
   timeout: 40,
   spoutCount: 0,
-  seqTest: []
+  seqTest: [],
+  flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, params => {
   var testFlow = TestUtil.testNodes.baseTestFlow();
   testFlow.nodes.push(Object.assign(httpInNode(), {
@@ -110,7 +111,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
   case 'end spout':
     t.equal(params.spoutCount, params.numPushes,
       `number of receives at spout is ${params.spoutCount}.`);
-    return onEnd();
+    return setTimeout(onEnd, 1000);
   default:
     t.comment(`Not handling ${msgType}: ${JSON.stringify(msgObj)}`);
     break;

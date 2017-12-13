@@ -436,9 +436,9 @@ module.exports = function (RED) {
       ended = true;
       if (server) setTimeout(() => {
         server.close(() => {
-          console.log('Closed server with ' + arguments);
+          node.log('Closed server.');
         });
-      }, 1000);
+      }, 0);
     });
   }
   util.inherits(SpmHTTPOut, redioactive.Spout);
