@@ -124,7 +124,7 @@ module.exports = function (RED) {
       flows = node.makeCable(cable);
       flowID = node.flowID();
       sourceID = node.sourceID();
-      return Promise.resolve();
+      return Promise.resolve(); // Used for push mode so generator runs in order
     }
 
     const buffers = [];
@@ -193,10 +193,13 @@ module.exports = function (RED) {
           clientID = 'cid' + Date.now();
           return next();
         }
-        if (res.statusCode === 503) {
+        if (res.statusCode === 405) {
           node.log(`Source stream has ended - thread ${x}.`);
           endTimeout = (endTimeout) ? endTimeout :
-            setTimeout(() => { push(null, redioactive.end); }, 1000);
+            setTimeout(() => {
+              node.log('Pushing redioactive.end.');
+              push(null, redioactive.end);
+            }, 1000);
           activeThreads[x] = false;
           ended = true;
           return;
@@ -209,39 +212,37 @@ module.exports = function (RED) {
             buffers[x][currentIdx] = currentBuf;
           }
           nextRequest[x] = res.headers['arachnid-ptporigin'];
-          var flowPromise = (flows) ? Promise.resolve() : makeFlowAndSource(res.headers);
-          flowPromise.then(() => {
-            res.on('data', data => {
-              position += data.copy(currentBuf, position);
-              // count++;
-              // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
-            });
-            res.on('end', () => {
-              let ptpOrigin = res.headers['arachnid-ptporigin'];
-              let ptpSync = res.headers['arachnid-ptpsync'];
-              let duration = res.headers['arachnid-grainduration'];
-              // TODO fix up regeneration
-              let gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-              let gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-              let tc = res.headers['arachnid-timecode'];
-              let g = new Grain([ currentBuf.slice(0, position) ], ptpSync,
-                ptpOrigin, tc, gFlowID, gSourceID, duration); // regenerate time as emitted
+          if (!flows) { makeFlowAndSource(res.headers); }
+          res.on('data', data => {
+            position += data.copy(currentBuf, position);
+            // count++;
+            // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
+          });
+          res.on('end', () => {
+            let ptpOrigin = res.headers['arachnid-ptporigin'];
+            let ptpSync = res.headers['arachnid-ptpsync'];
+            let duration = res.headers['arachnid-grainduration'];
+            // TODO fix up regeneration
+            let gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
+            let gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
+            let tc = res.headers['arachnid-timecode'];
+            let g = new Grain([ currentBuf.slice(0, position) ], ptpSync,
+              ptpOrigin, tc, gFlowID, gSourceID, duration); // regenerate time as emitted
 
-              let durArray = g.getDuration();
-              let originArray = g.getOriginTimestamp();
-              originArray [1] = originArray[1] +
-                totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
-              if (originArray[1] >= 1000000000)
-                originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
-              let nanos = (originArray[1]%1000000000).toString();
-              nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
+            let durArray = g.getDuration();
+            let originArray = g.getOriginTimestamp();
+            originArray [1] = originArray[1] +
+              totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
+            if (originArray[1] >= 1000000000)
+              originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
+            let nanos = (originArray[1]%1000000000).toString();
+            nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
 
-              pushGrains(g, push);
-              activeThreads[x] = false;
-              bufferIdx[x]++;
-              console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
-              next();
-            });
+            pushGrains(g, push);
+            activeThreads[x] = false;
+            bufferIdx[x]++;
+            console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+            next();
           });
         }
         res.on('error', e => {
@@ -303,6 +304,9 @@ module.exports = function (RED) {
           delete grainQueue[gts];
           highWaterMark = gts;
         });
+      if (ended && activeThreads.every(a => a === false)) {
+        push(null, redioactive.end);
+      }
     };
 
     var activeThreads =
@@ -407,7 +411,7 @@ module.exports = function (RED) {
         });
       });
 
-      app.use((err, req, res/*, next*/) => {
+      app.use((err, req, res, next) => { // Have to pass in next for express to work
         this.warn(err);
         if (err.status) {
           res.status(err.status).json({
@@ -422,15 +426,17 @@ module.exports = function (RED) {
             debug: (err.stack) ? err.stack : 'No stack available.'
           });
         }
+        if (next === false) next();
       });
 
-      app.use((req, res/*, next*/) => {
+      app.use((req, res, next) => { // Have to pass in next for express to work
         this.log(`Fell through express. Request ${req.path} is unhandled.`);
         res.status(404).json({
           code : 404,
           error : `Could not find the requested resource '${req.path}'.`,
           debug : req.path
         });
+        if (next == false) next();
       });
 
       var options = (config.protocol === 'HTTP') ? {} : {
@@ -453,19 +459,20 @@ module.exports = function (RED) {
         fullURL.hostname = addr;
         this.generator((push, next) => {
           if (ended === false) {
-            setTimeout(() => {
+            setTimeout(() => { // TODO do we need this setTimeout?
               // console.log('+++ DEBUG THREADS', activeThreads);
-              for ( var i = 0 ; i < activeThreads.length ; i++ ) {
+              for ( let i = 0 ; i < activeThreads.length ; i++ ) {
+                let drift = versionDiffMs(highWaterMark, nextRequest[i]);
                 if (!activeThreads[i]) {
-                  if (versionDiffMs(highWaterMark, nextRequest[i]) < maxDrift) {
+                  if (drift < maxDrift) {
                     runNext.call(this, i, push, next);
                     activeThreads[i] = true;
                   } else {
-                    node.warn(`Not progressing thread ${i} this time due to a drift of ${versionDiffMs(highWaterMark, nextRequest[i])}.`);
+                    node.warn(`Not progressing thread ${i} this time due to a drift of ${drift}.`);
                   }
                 }
               }
-            }, (flows === null) ? 1000 : 0);
+            }, 0);// (flows === null) ? 1000 : 0);
           } else {
             this.log('Not responding to generator.');
           }

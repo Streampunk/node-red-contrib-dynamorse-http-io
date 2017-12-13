@@ -305,7 +305,7 @@ module.exports = function (RED) {
               // console.log('!!! Responding not found.');
               // this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
               if (ended) {
-                return next(statusError(503, 'Stream has ended.'));
+                return next(statusError(405, 'Stream has ended.'));
               } else {
                 return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
               }
@@ -367,6 +367,7 @@ module.exports = function (RED) {
       app.use((err, req, res, next) => { // Must have four args, even if next not called
         node.warn(err);
         if (err.status) {
+          if (err.status === 405) { res.setHeader('Allow', ''); } // Allow header mandatory for 405, empty allowed
           res.status(err.status).json({
             code: err.status,
             error: (err.message) ? err.message : 'Internal server error. No message available.',
@@ -433,7 +434,11 @@ module.exports = function (RED) {
       clearInterval(this.clearDown);
       this.clearDown = null;
       ended = true;
-      if (server) setTimeout(server.close, 35000);
+      if (server) setTimeout(() => {
+        server.close(() => {
+          console.log('Closed server with ' + arguments);
+        });
+      }, 1000);
     });
   }
   util.inherits(SpmHTTPOut, redioactive.Spout);

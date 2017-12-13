@@ -73,7 +73,8 @@ const spoutTestID = '235b251e.c1821a';
 TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
   numPushes: 10,
   timeout: 40,
-  spoutCount: 0
+  spoutCount: 0,
+  seqTest: []
 }, params => {
   var testFlow = TestUtil.testNodes.baseTestFlow();
   testFlow.nodes.push(Object.assign(httpInNode(), {
@@ -107,10 +108,17 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
     .replace(/src /, msgObj.src);
   t.comment(`Message: '${msgType}'`);
   switch (msgType) {
+  case 'push funnel':
+    params.seqTest.push(msgObj.push);
+    break;
   case 'receive spout':
     TestUtil.checkGrain(t, msgObj.receive);
+    t.deepEqual(msgObj.receive, params.seqTest[params.spoutCount++],
+      `funnel and spout objects for index ${params.spoutCount} are the same.`);
     break;
   case 'end spout':
+    t.equal(params.spoutCount, params.numPushes,
+      `number of receives at spout is ${params.spoutCount}.`);
     return onEnd();
   default:
     t.comment(`Not handling ${msgType}: ${JSON.stringify(msgObj)}`);
