@@ -13,16 +13,7 @@
   limitations under the License.
 */
 
-const httpOut = require('../nodes/40-spm-http-in.js');
-const httpIn = require('../nodes/40-spm-http-out.js');
-const test = require('tape');
 const TestUtil = require('dynamorse-test');
-
-test('Check the modules load OK', t => {
-  t.ok(httpOut, 'HTTP out loads OK.');
-  t.ok(httpIn, 'HTTP in loads OK.');
-  t.end();
-});
 
 const httpOutNode = () => ({
   type: 'spm-http-out',
