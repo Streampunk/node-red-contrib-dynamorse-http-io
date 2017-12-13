@@ -14,6 +14,15 @@
 */
 
 const TestUtil = require('dynamorse-test');
+const httpOut = require('../nodes/40-spm-http-in.js');
+const httpIn = require('../nodes/40-spm-http-out.js');
+const test = require('tape');
+
+test('Check the modules load OK', t => {
+  t.ok(httpOut, 'HTTP out loads OK.');
+  t.ok(httpIn, 'HTTP in loads OK.');
+  t.end();
+});
 
 const httpOutNode = () => ({
   type: 'spm-http-out',
@@ -62,7 +71,7 @@ const httpReceiverID = 'b5fc1a27.fd08e8';
 const spoutTestID = '235b251e.c1821a';
 
 TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
-  numPushes: 10,
+  numPushes: 50,
   timeout: 40,
   spoutCount: 0,
   seqTest: [],

@@ -316,7 +316,7 @@ module.exports = function (RED) {
             return next(statusError(400, 'When using relative timings, a client ID header must be provided.'));
           var ts = (req.params.ts) ? +req.params.ts : NaN;
           if (isNaN(ts) || ts > 0 || ts <= -6)
-            return next(statusError(400, `Timestamp must be a number between ${-5} and 0.`));
+            return next(statusError(400, `Timestamp must be a number between ${-5} and 0. Received ${req.params.ts}.`));
           if (!clientCache[clientID] ||
               Date.now() - clientCache[clientID].created > 5000) { // allow for backpressure restart
             clientCache[clientID] = {
