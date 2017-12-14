@@ -14,15 +14,6 @@
 */
 
 const TestUtil = require('dynamorse-test');
-const httpOut = require('../nodes/40-spm-http-in.js');
-const httpIn = require('../nodes/40-spm-http-out.js');
-const test = require('tape');
-
-test('Check the modules load OK', t => {
-  t.ok(httpOut, 'HTTP out loads OK.');
-  t.ok(httpIn, 'HTTP in loads OK.');
-  t.end();
-});
 
 const httpOutNode = () => ({
   type: 'spm-http-out',
@@ -70,16 +61,11 @@ const httpSenderID = '9c26da77.ee24e8';
 const httpReceiverID = 'b5fc1a27.fd08e8';
 const spoutTestID = '235b251e.c1821a';
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
-  numPushes: 50,
-  timeout: 40,
-  spoutCount: 0,
-  seqTest: [],
-  flowTimeout: 10000 // needs to be longer than the time it takes to flow!
-}, params => {
+var httpGraph = params => {
   var testFlow = TestUtil.testNodes.baseTestFlow();
   testFlow.nodes.push(Object.assign(httpInNode(), {
     id: httpReceiverID,
+    parallel: params.parallel,
     wires: [ [ spoutTestID ] ]
   }));
 
@@ -93,21 +79,24 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
   testFlow.nodes.push(Object.assign(TestUtil.testNodes.funnelGrainNode(), {
     id: funnelGrainID,
     numPushes: params.numPushes,
-    format: 'video',
+    format: params.format,
     delay: 10,
     wires: [ [ httpSenderID ] ]
   }));
 
   testFlow.nodes.push(Object.assign(httpOutNode(), {
-    id: httpSenderID
+    id: httpSenderID,
+    parallel: params.parallel
   }));
 
   return testFlow;
-}, (t, params, msgObj, onEnd) => {
+};
+
+var recvMsg = function (t, params, msgObj, onEnd) {
   let msgType = Object.keys(msgObj)
     .reduce((x, y) => x + y + ' ', '')
     .replace(/src /, msgObj.src);
-  t.comment(`Message: '${msgType}'`);
+  // t.comment(`Message: '${msgType}'`);
   switch (msgType) {
   case 'push funnel':
     params.seqTest.push(msgObj.push);
@@ -115,7 +104,13 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
   case 'receive spout':
     TestUtil.checkGrain(t, msgObj.receive);
     t.deepEqual(msgObj.receive, params.seqTest[params.spoutCount++],
-      `funnel and spout objects for index ${params.spoutCount} are the same.`);
+      `funnel and spout objects for index ${params.spoutCount} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
+    break;
+  case 'found srcID srcType HTTP sender':
+    t.comment(`*** FOUND sender *** ${msgObj.found}.`);
+    break;
+  case 'found srcID srcType spout':
+    t.comment(`*** FOUND spout *** ${msgObj.found}.`);
     break;
   case 'end spout':
     t.equal(params.spoutCount, params.numPushes,
@@ -125,4 +120,34 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case', {
     t.comment(`Not handling ${msgType}: ${JSON.stringify(msgObj)}`);
     break;
   }
-});
+};
+
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
+  numPushes: 10,
+  timeout: 40,
+  parallel: 1,
+  format: 'video',
+  spoutCount: 0,
+  seqTest: [],
+  flowTimeout: 10000 // needs to be longer than the time it takes to flow!
+}, httpGraph, recvMsg);
+
+/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
+  numPushes: 100,
+  timeout: 0,
+  parallel: 1,
+  format: 'video',
+  spoutCount: 0,
+  seqTest: [],
+  flowTimeout: 10000
+}, httpGraph, recvMsg); */
+
+/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+  numPushes: 10,
+  timeout: 40,
+  parallel: 2,
+  format: 'video',
+  spoutCount: 0,
+  seqTest: [],
+  flowTimeout: 10000
+}, httpGraph, recvMsg); */

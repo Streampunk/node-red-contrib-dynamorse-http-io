@@ -117,6 +117,11 @@ module.exports = function (RED) {
       cable[tags.format] = [{ tags : tags }];
       cable.backPressure = `${tags.format}[0]`;
 
+      if (headers['arachnid-grainduration']) {
+        let durMatch = headers['arachnid-grainduration'].match(/(\d+)\/(\d+)/);
+        tags.grainDuration = [ +durMatch[1], +durMatch[2] ];
+      }
+
       if (headers['arachnid-sourceid'] && (config.regenerate === false))
         cable[tags.format][0].sourceID = headers['arachnid-sourceid'];
       if (headers['arachnid-flowid'] && (config.regenerate === false))
@@ -232,9 +237,9 @@ module.exports = function (RED) {
             let durArray = g.getDuration();
             let originArray = g.getOriginTimestamp();
             originArray [1] = originArray[1] +
-              totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0;
+              (totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0);
             if (originArray[1] >= 1000000000)
-              originArray[0] = originArray[0] + originArray[1] / 1000000000|0;
+              originArray[0] = originArray[0] + (originArray[1] / 1000000000|0);
             let nanos = (originArray[1]%1000000000).toString();
             nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
 
@@ -459,8 +464,8 @@ module.exports = function (RED) {
         fullURL.hostname = addr;
         this.generator((push, next) => {
           if (ended === false) {
-            setImmediate(() => { // Converted from a setTimeout - not required with cables?
-              // console.log('+++ DEBUG THREADS', activeThreads);
+            setImmediate(() => { // Converted from a setTimeout - not required with calbes?
+              console.log('+++ DEBUG THREADS', activeThreads);
               for ( let i = 0 ; i < activeThreads.length ; i++ ) {
                 let drift = versionDiffMs(highWaterMark, nextRequest[i]);
                 if (!activeThreads[i]) {

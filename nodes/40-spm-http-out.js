@@ -436,7 +436,7 @@ module.exports = function (RED) {
       ended = true;
       if (server) setTimeout(() => {
         server.close(() => {
-          node.log('Closed server.');
+          node.warn('Closed server.');
         });
       }, 0);
     });
