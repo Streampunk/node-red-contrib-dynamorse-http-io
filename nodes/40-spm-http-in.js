@@ -110,8 +110,24 @@ module.exports = function (RED) {
         tags.clockRate = 90000;
         tags.packing = 'pgroup';
       }
-      if (headers['arachnid-packing'])
+      if (headers['arachnid-packing'] && tags.format === 'video')
         tags.packing = headers['arachnid-packing'];
+
+      if (tags.format === 'audio') {
+        switch (tags.encodingName) {
+        case 'L16':
+          tags.blockAlign = 2 * tags.channels;
+          break;
+        case 'L24':
+          tags.blockAlign = 3 * tags.channels;
+          break;
+        case 'L20':
+          tags.bloclAlign = 5 * tags.channels;
+          break;
+        default:
+          break;
+        }
+      }
 
       let cable = {};
       cable[tags.format] = [{ tags : tags }];
@@ -464,8 +480,8 @@ module.exports = function (RED) {
         fullURL.hostname = addr;
         this.generator((push, next) => {
           if (ended === false) {
-            setImmediate(() => { // Converted from a setTimeout - not required with calbes?
-              console.log('+++ DEBUG THREADS', activeThreads);
+            setTimeout(() => { // TODO SetTimeout used for parallel threads - bit dodgy?
+              // console.log('+++ DEBUG THREADS', activeThreads);
               for ( let i = 0 ; i < activeThreads.length ; i++ ) {
                 let drift = versionDiffMs(highWaterMark, nextRequest[i]);
                 if (!activeThreads[i]) {
@@ -477,7 +493,7 @@ module.exports = function (RED) {
                   }
                 }
               }
-            }, 0);// (flows === null) ? 1000 : 0);
+            }, (flows === null) ? 100 : 0);
           } else {
             this.log('Not responding to generator.');
           }

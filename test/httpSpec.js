@@ -107,10 +107,12 @@ var recvMsg = function (t, params, msgObj, onEnd) {
       `funnel and spout objects for index ${params.spoutCount} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
     break;
   case 'found srcID srcType HTTP sender':
-    t.comment(`*** FOUND sender *** ${msgObj.found}.`);
+    // t.comment(`*** FOUND sender *** ${JSON.stringify(msgObj.found)}.`);
+    params.sentTags = msgObj.found[0];
     break;
   case 'found srcID srcType spout':
-    t.comment(`*** FOUND spout *** ${msgObj.found}.`);
+    t.deepEqual(msgObj.found[0], params.sentTags,
+      'cable descriptions at sender and spout match.');
     break;
   case 'end spout':
     t.equal(params.spoutCount, params.numPushes,
@@ -132,7 +134,18 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, httpGraph, recvMsg);
 
-/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
+  numPushes: 10,
+  timeout: 40,
+  parallel: 1,
+  format: 'audio',
+  spoutCount: 0,
+  seqTest: [],
+  flowTimeout: 10000 // needs to be longer than the time it takes to flow!
+}, httpGraph, recvMsg); 
+
+
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
   numPushes: 100,
   timeout: 0,
   parallel: 1,
@@ -140,9 +153,9 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000
-}, httpGraph, recvMsg); */
+}, httpGraph, recvMsg);
 
-/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
   numPushes: 10,
   timeout: 40,
   parallel: 2,
@@ -150,4 +163,4 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000
-}, httpGraph, recvMsg); */
+}, httpGraph, recvMsg);

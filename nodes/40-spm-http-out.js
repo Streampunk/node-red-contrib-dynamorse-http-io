@@ -328,14 +328,34 @@ module.exports = function (RED) {
             delete clientCache[clientID];
             return next(statusError(400, 'Only one client at a time is possible with back pressure enabled.'));
           }
-          var items = clientCache[clientID].items;
-          var itemIndex = items.length + ts - 1;
-          if (itemIndex < 0) {
-            return next(statusError(404, 'Insufficient grains in cache to provide that number of parallel threads.'));
-          }
-          g = items[itemIndex];
-          //  this.log(`Redirecting ${ts} to ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}.`);
-          return res.redirect(Grain.prototype.formatTimestamp(g.grain.ptpOrigin));
+          let cacheRetry = 0;
+
+          let tryCacheRead = () => {
+            let items = clientCache[clientID].items;
+            let itemIndex = items.length + ts - 1;
+            if (itemIndex < 0) {
+              if (cacheRetry++ >= 10) {
+                return next(statusError(404, `Insufficient grains in cache to provide ${items.length} parallel threads.`));
+              } else {
+                node.warn(`Insufficient grains in cache to provide information for relative timestamp ${ts} parallel on attempt ${cacheRetry}.`);
+                return setTimeout(() => {
+                  if (items.length > 0) { // Just in case cache was empty
+                    // console.log(items, items.slice(-1)[0]);
+                    clientCache[clientID].items = grainCache // Cache may have grown
+                      .filter(g => msOriginTs(g.grain) <= msOriginTs(items.slice(-1)[0].grain));
+                  } else {
+                    clientCache[clientID].items = grainCache.slice(-6);
+                  }
+                  tryCacheRead();
+                }, 5);
+              }
+            }
+            g = items[itemIndex];
+            //  this.log(`Redirecting ${ts} to ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}.`);
+            res.redirect(Grain.prototype.formatTimestamp(g.grain.ptpOrigin));
+          };
+
+          return tryCacheRead();
         }
         // this.log('Got to b4 setting headers.');
         if (clientID)
