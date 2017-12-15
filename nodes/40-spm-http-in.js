@@ -65,6 +65,15 @@ function versionDiffMs (smaller, bigger) {
   return bgMs - smMs;
 }
 
+function startThreads (n) {
+  let threads = [];
+  let startID = 'sid' + Date.now();
+  for ( let x = 1 ; x <= n ; x++ ) {
+    threads.push(`start/${startID}/${n}/${x}`);
+  }
+  return threads;
+}
+
 const mimeMatch = /^\s*(\w+)\/([\w-]+)/;
 const paramMatch = /\b(\w+)=(\S+)\b/g;
 
@@ -81,7 +90,6 @@ module.exports = function (RED) {
       config.path.slice(0, -1) : config.path;
     var fullPath = `${config.pullURL}:${config.port}${config.path}`;
     var fullURL = url.parse(fullPath);
-    var clientID = 'cid' + Date.now();
     this.baseTime = [ Date.now() / 1000|0, (Date.now() % 1000) * 1000000 ];
     var sourceID = null;
     var flowID = null;
@@ -129,14 +137,14 @@ module.exports = function (RED) {
         }
       }
 
-      let cable = {};
-      cable[tags.format] = [{ tags : tags }];
-      cable.backPressure = `${tags.format}[0]`;
-
       if (headers['arachnid-grainduration']) {
         let durMatch = headers['arachnid-grainduration'].match(/(\d+)\/(\d+)/);
         tags.grainDuration = [ +durMatch[1], +durMatch[2] ];
       }
+
+      let cable = {};
+      cable[tags.format] = [{ tags : tags }];
+      cable.backPressure = `${tags.format}[0]`;
 
       if (headers['arachnid-sourceid'] && (config.regenerate === false))
         cable[tags.format][0].sourceID = headers['arachnid-sourceid'];
@@ -171,10 +179,8 @@ module.exports = function (RED) {
         port: fullURL.port,
         path: `${fullURL.path}/${nextRequest[x]}`,
         method: 'GET',
-        agent: keepAliveAgent,
-        headers: {
-          'Arachnid-ClientID': clientID
-        }},
+        agent: keepAliveAgent
+      },
       res => {
         // console.log('Response received after', process.hrtime(requestTimer));
         // var count = 0;
@@ -208,10 +214,8 @@ module.exports = function (RED) {
         if (res.statusCode === 410) {
           node.warn(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
           // push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
-          nextRequest =
-            [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
+          nextRequest = startThreads(+config.parallel);
           activeThreads[x] = false;
-          clientID = 'cid' + Date.now();
           return next();
         }
         if (res.statusCode === 405) {
@@ -331,9 +335,8 @@ module.exports = function (RED) {
     };
 
     var activeThreads =
-      [ false, false, false, false, false, false].slice(0, config.parallel);
-    var nextRequest =
-      [ '-5', '-4', '-3', '-2', '-1', '0' ].slice(-config.parallel);
+      [ false, false, false, false, false, false].slice(0, +config.parallel);
+    var nextRequest = startThreads(+config.parallel);
 
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
@@ -480,7 +483,7 @@ module.exports = function (RED) {
         fullURL.hostname = addr;
         this.generator((push, next) => {
           if (ended === false) {
-            setTimeout(() => { // TODO SetTimeout used for parallel threads - bit dodgy?
+            setImmediate(() => { // Was a set timeout to allow grain cache to fill - now has logic
               // console.log('+++ DEBUG THREADS', activeThreads);
               for ( let i = 0 ; i < activeThreads.length ; i++ ) {
                 let drift = versionDiffMs(highWaterMark, nextRequest[i]);
@@ -493,7 +496,7 @@ module.exports = function (RED) {
                   }
                 }
               }
-            }, (flows === null) ? 100 : 0);
+            }); //, (flows === null) ? 100 : 0);
           } else {
             this.log('Not responding to generator.');
           }

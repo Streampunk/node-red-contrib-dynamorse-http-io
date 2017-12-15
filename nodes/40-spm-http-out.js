@@ -73,6 +73,18 @@ function clearCacheBefore(c, t) {
   return s;
 }
 
+function once (fn, context) {
+  var result;
+  return function() {
+    if (fn) {
+      result = fn.apply(context || this, arguments);
+      fn = null;
+    }
+    return result;
+  };
+}
+
+
 module.exports = function (RED) {
   // var count = 0;
   function SpmHTTPOut (config) {
@@ -89,7 +101,7 @@ module.exports = function (RED) {
       cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
     };
     var grainCache = [];
-    var clientCache = {};
+    var startCache = {};
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
     var contentType = 'application/octet-stream';
     var packing = 'raw';
@@ -114,6 +126,23 @@ module.exports = function (RED) {
         resolve(addr);
       });
     });
+
+    function startChecks (startID) {
+      if (!startID) {
+        return Object.keys(startCache).forEach(startChecks);
+      }
+      let startResponses = startCache[startID].responses;
+      if (!startResponses.includes(undefined) &&
+          grainCache.length >= startResponses.length) {
+        let lastGrains = grainCache.slice(-startResponses.length);
+        for ( let i = 0 ; i < startResponses.length ; i++ ) {
+          startResponses[i].res.redirect(
+            Grain.prototype.formatTimestamp(lastGrains[i].grain.ptpOrigin));
+        }
+        delete startCache[startID];
+      }
+    }
+
     this.each((x, next) => {
       if (!Grain.isGrain(x)) {
         node.warn(`HTTP out received something that is not a grain: ${x}`);
@@ -156,7 +185,7 @@ module.exports = function (RED) {
 
       nextJob.then(() => {
         grainCache.push({ grain : x,
-          nextFn : (config.backpressure === true) ? next : nop });
+          nextFn : (config.backpressure === true) ? once(next) : nop });
         if (grainCache.length > config.cacheSize) {
           grainCache = grainCache.slice(grainCache.length - config.cacheSize);
         }
@@ -167,6 +196,7 @@ module.exports = function (RED) {
               (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
           setTimeout(next, diff);
         }
+        startChecks();
 
         if (config.mode === 'push') {
           var sendMore = () => {
@@ -271,13 +301,53 @@ module.exports = function (RED) {
           cacheTS : grainCache.map(g => {
             return Grain.prototype.formatTimestamp(g.grain.ptpOrigin);
           }),
-          clients : Object.keys(clientCache)
+          starters : Object.keys(startCache)
         });
+      });
+      app.get(config.path + '/start/:sid/:conc/:t', (req, res, next) => {
+        console.log('*** RECEIVED START', req.params);
+        let startID = req.params.sid;
+        let conc = (req.params.conc) ? +req.params.conc : NaN;
+        if (isNaN(conc) || conc <= 0 || conc > 6) {
+          return next(statusError(400, `Number of concurrent threads must be a number between 1 and 6. Recieved ${req.paraks.conc}.`));
+        }
+        let t = (req.params.t) ? +req.params.t : NaN;
+        if (isNaN(t) || t <= 0 || t > conc) {
+          return next(statusError(400, `Timestamp must be a number between 1 and ${conc}. Received ${req.params.t}.`));
+        }
+        if (!startCache[startID]) {
+          startCache[startID] = {
+            created : Date.now(),
+            responses : new Array(conc)
+          };
+        }
+        if (Date.now() - startCache[startID].created > 5000) { // allow for backpressure restart
+          startCache[startID].responses.forEach(r => {
+            r.next(statusError(408, `For start ID ${startID}, thread ${r.t} of ${r.conc}, redirection is not available.`));
+          });
+          startCache[startID] = {
+            created : Date.now(),
+            responses : new Array(conc)
+          };
+        }
+        let startResponses = startCache[startID].responses;
+        if (startResponses[t - 1]) {
+          let res = startResponses[t - 1];
+          res.next(statusError(409, `For start ID ${startID}, thread ${res.t} of ${res.conc}, duplicate request for redirection.`));
+          node.warn(`Duplicate request for start ID ${startID}, thread ${res.t} of ${res.conc}, duplicate request for redirection.`);
+        }
+        startResponses[t - 1] = {
+          res: res,
+          next: next,
+          t: t,
+          conc: conc
+        };
+
+        return startChecks(startID);
       });
       app.get(config.path + '/:ts', (req, res, next) => {
         // this.log(`Received request for ${req.params.ts}.`);
         var nextGrain = grainCache[grainCache.length - 1].nextFn;
-        var clientID = req.headers['arachnid-clientid'];
         var g = null;
         var tsMatch = req.params.ts.match(/([0-9]+):([0-9]{9})/);
         if (tsMatch) {
@@ -312,54 +382,10 @@ module.exports = function (RED) {
             }
           }
         } else {
-          if (!clientID)
-            return next(statusError(400, 'When using relative timings, a client ID header must be provided.'));
-          var ts = (req.params.ts) ? +req.params.ts : NaN;
-          if (isNaN(ts) || ts > 0 || ts <= -6)
-            return next(statusError(400, `Timestamp must be a number between ${-5} and 0. Received ${req.params.ts}.`));
-          if (!clientCache[clientID] ||
-              Date.now() - clientCache[clientID].created > 5000) { // allow for backpressure restart
-            clientCache[clientID] = {
-              created : Date.now(),
-              items : grainCache.slice(-6)
-            };
-          }
-          if (config.backpressure === true && Object.keys(clientCache).length > 1) {
-            delete clientCache[clientID];
-            return next(statusError(400, 'Only one client at a time is possible with back pressure enabled.'));
-          }
-          let cacheRetry = 0;
-
-          let tryCacheRead = () => {
-            let items = clientCache[clientID].items;
-            let itemIndex = items.length + ts - 1;
-            if (itemIndex < 0) {
-              if (cacheRetry++ >= 10) {
-                return next(statusError(404, `Insufficient grains in cache to provide ${items.length} parallel threads.`));
-              } else {
-                node.warn(`Insufficient grains in cache to provide information for relative timestamp ${ts} parallel on attempt ${cacheRetry}.`);
-                return setTimeout(() => {
-                  if (items.length > 0) { // Just in case cache was empty
-                    // console.log(items, items.slice(-1)[0]);
-                    clientCache[clientID].items = grainCache // Cache may have grown
-                      .filter(g => msOriginTs(g.grain) <= msOriginTs(items.slice(-1)[0].grain));
-                  } else {
-                    clientCache[clientID].items = grainCache.slice(-6);
-                  }
-                  tryCacheRead();
-                }, 5);
-              }
-            }
-            g = items[itemIndex];
-            //  this.log(`Redirecting ${ts} to ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}.`);
-            res.redirect(Grain.prototype.formatTimestamp(g.grain.ptpOrigin));
-          };
-
-          return tryCacheRead();
+          return(next(statusError(400, `Could not match timestamp ${req.params.ts} provided on path.`)));
         }
+
         // this.log('Got to b4 setting headers.');
-        if (clientID)
-          res.setHeader('Arachnid-ClientID', clientID);
         res.setHeader('Arachnid-PTPOrigin', Grain.prototype.formatTimestamp(g.ptpOrigin));
         res.setHeader('Arachnid-PTPSync', Grain.prototype.formatTimestamp(g.ptpSync));
         res.setHeader('Arachnid-FlowID', uuid.unparse(g.flow_id));
@@ -433,18 +459,17 @@ module.exports = function (RED) {
       this.clearDown = setInterval(() => {
         var toDelete = [];
         var now = Date.now();
-        Object.keys(clientCache).forEach(k => {
-          if (clientCache[k].items && now - clientCache[k].created > 5000)
+        Object.keys(startCache).forEach(k => {
+          if (now - startCache[k].created > 5000)
             toDelete.push(k);
         });
         toDelete.forEach(k => {
-          if (config.backpressure === true) {
-            node.log(`Clearing items from clientID '${k}' to free related memory.`);
-            delete clientCache[k].items;
-          } else {
-            node.log(`Clearing clientID '${k}' from the client cache.`);
-            delete clientCache[k];
-          }
+          let responses = startCache[k].responses;
+          node.warn(`Deleting start ID ${k} from start cache with entries ${responses.map(x => x && x.t)}.`);
+          responses.forEach(r => {
+            r.next(statusError(408, `Clearing start cache for start ID ${k}, thread ${r.t} of ${r.conc}, after 5 seconds.`));
+          });
+          delete startCache[k];
         });
       }, 1000);
     }

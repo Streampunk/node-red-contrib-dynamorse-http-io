@@ -142,8 +142,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
-}, httpGraph, recvMsg); 
-
+}, httpGraph, recvMsg);
 
 TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
   numPushes: 100,
