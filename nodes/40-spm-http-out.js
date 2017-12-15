@@ -129,7 +129,10 @@ module.exports = function (RED) {
 
     function startChecks (startID) {
       if (!startID) {
-        return Object.keys(startCache).forEach(startChecks);
+        let hungry = Object.keys(startCache)
+          .map(startChecks)
+          .some(x => x === true);
+        return hungry;
       }
       let startResponses = startCache[startID].responses;
       if (!startResponses.includes(undefined) &&
@@ -140,6 +143,16 @@ module.exports = function (RED) {
             Grain.prototype.formatTimestamp(lastGrains[i].grain.ptpOrigin));
         }
         delete startCache[startID];
+        return false;
+      } else {
+        if (grainCache.length < startResponses.length) {
+          if (grainCache.length > 0) {
+            grainCache.slice(-1)[0].nextFn();
+          }
+          return true;
+        } else {
+          return false;
+        }
       }
     }
 
@@ -179,7 +192,7 @@ module.exports = function (RED) {
               });
             server.on('error', this.warn);
           }
-          for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
+          // for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
           begin = process.hrtime();
         });
 
@@ -305,7 +318,7 @@ module.exports = function (RED) {
         });
       });
       app.get(config.path + '/start/:sid/:conc/:t', (req, res, next) => {
-        console.log('*** RECEIVED START', req.params);
+        // console.log('*** RECEIVED START', req.params);
         let startID = req.params.sid;
         let conc = (req.params.conc) ? +req.params.conc : NaN;
         if (isNaN(conc) || conc <= 0 || conc > 6) {

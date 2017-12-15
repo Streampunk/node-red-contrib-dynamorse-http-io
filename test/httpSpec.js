@@ -163,3 +163,23 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
   seqTest: [],
   flowTimeout: 10000
 }, httpGraph, recvMsg);
+
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+  numPushes: 10,
+  timeout: 40,
+  parallel: 3,
+  format: 'video',
+  spoutCount: 0,
+  seqTest: [],
+  flowTimeout: 10000
+}, httpGraph, recvMsg);
+
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+  numPushes: 10,
+  timeout: 40,
+  parallel: 4,
+  format: 'video',
+  spoutCount: 0,
+  seqTest: [],
+  flowTimeout: 10000
+}, httpGraph, recvMsg);
