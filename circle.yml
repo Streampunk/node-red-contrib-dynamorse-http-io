@@ -14,7 +14,10 @@ dependencies:
     - pm2 start /opt/circleci/nodejs/v8.9.3/bin/node-red
     - |
       curl -d '{"module": "node-red-contrib-dynamorse-core"}' -H 'Content-Type: application/json' 127.0.0.1:1880/nodes
-      curl -d '{"module": "node-red-contrib-dynamorse-http-io"}' -H 'Content-Type: application/json' 127.0.0.1:1880/nodes
+    - npm link
+    - cd ~/.node-red; npm link node-red-contrib-dynamorse-http-io
+    - pm2 restart /opt/circleci/nodejs/v8.9.3/bin/node-red
+      # curl -d '{"module": "node-red-contrib-dynamorse-http-io"}' -H 'Content-Type: application/json' 127.0.0.1:1880/nodes
 
 test:
   override:
