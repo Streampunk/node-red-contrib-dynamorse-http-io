@@ -60,7 +60,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 3 threads', {
   numPushes: 10,
   timeout: 40,
   parallel: 3,
@@ -71,7 +71,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 4 threads', {
   numPushes: 10,
   timeout: 40,
   parallel: 4,
