@@ -22,7 +22,7 @@ const httpOutNode = () => ({
   wsPort: TestUtil.properties.wsPort,
   protocol: 'HTTP',
   mode: 'pull',
-  pushURL: '',
+  pushURL: 'http://localhost',
   path: '/test',
   port: 8712,
   regenerate: false,
@@ -66,7 +66,8 @@ var httpGraph = params => {
   testFlow.nodes.push(Object.assign(httpInNode(), {
     id: httpReceiverID,
     parallel: params.parallel,
-    protocol: params.protocol === 'HTTPS'? 'HTTPS' : 'HTTP',
+    protocol: params.protocol === 'HTTPS' ? 'HTTPS' : 'HTTP',
+    mode: params.mode === 'push' ? 'push' : 'pull',
     wires: [ [ spoutTestID ] ]
   }));
 
@@ -88,7 +89,8 @@ var httpGraph = params => {
   testFlow.nodes.push(Object.assign(httpOutNode(), {
     id: httpSenderID,
     parallel: params.parallel,
-    protocol: params.protocol === 'HTTPS'? 'HTTPS' : 'HTTP'
+    protocol: params.protocol === 'HTTPS'? 'HTTPS' : 'HTTP',
+    mode: params.mode === 'push' ? 'push' : 'pull'
   }));
 
   return testFlow;

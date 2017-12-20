@@ -97,6 +97,7 @@ module.exports = function (RED) {
     var tags = {};
     var totalConcurrent = +config.parallel;
     var ended = false;
+    var pushEnd = null;
 
     function makeFlowAndSource (headers) {
       var contentType = headers['content-type'];
@@ -341,6 +342,7 @@ module.exports = function (RED) {
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
       this.lowWaterMark = null;
+      this.endMark = null;
       var resolver = null;
       var flowPromise = new Promise(f => { resolver = f; });
       var started = false;
@@ -375,9 +377,31 @@ module.exports = function (RED) {
         resolver = null;
       });
 
-      this.generator((push, next) => {
+      app.put(config.path + '/:hwm/end', (req, res) => {
+        node.log(`End received with remote high water mark ${req.params.hwm} and current low water mark ${this.lowWaterMark}.`);
+        ended = true;
+        node.wsMsg.send({'end_received': { hwm: req.params.hwm }});
         flowPromise = flowPromise.then(() => {
-          // this.log('Calling generator.');
+          if (pushEnd) pushEnd();
+          if (server) {
+            setTimeout(() => {
+              server.close(() => {
+                node.warn('Closed server.');
+              });
+            }, 1000);
+          }
+        });
+        if (resolver) resolver();
+        resolver = null;
+        res.json({
+          message: 'end_received',
+          timestamp: req.params.hwm
+        });
+      });
+
+      this.generator((push, next) => {
+        pushEnd = () => { push(null, redioactive.end); };
+        flowPromise = flowPromise.then(() => {
           var sortedKeys = Object.keys(this.receiveQueue)
             .sort(compareVersions);
           var numberToSend = sortedKeys.length - config.parallel + 1;
@@ -385,7 +409,7 @@ module.exports = function (RED) {
             .forEach(gts => {
               var req = this.receiveQueue[gts].req;
               var res = this.receiveQueue[gts].res;
-              var buf = this.receiceQueue[gts].buf;
+              var buf = this.receiveQueue[gts].buf;
               var idx = this.receiveQueue[gts].idx;
               delete this.receiveQueue[gts];
               if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
@@ -398,8 +422,8 @@ module.exports = function (RED) {
                 });
               }
               var position = 0;
-              let contentLength = req.headers['content-length'];
-              if (buf.length < contentLength) {
+              let contentLength = +req.headers['content-length'];
+              if (!isNaN(contentLength) && buf.length < contentLength) {
                 node.log(`Extending buffer ${idx} from ${buf.length} bytes to ${contentLength} bytes.`);
                 buf = Buffer.alloc(contentLength);
                 buffers[idx[0], idx[1]] = buf;
@@ -421,18 +445,21 @@ module.exports = function (RED) {
                 this.lowWaterMark = gts;
 
                 res.json({
+                  message: 'grain_recieved',
+                  timestamp: req.headers['arachnid-ptporigin'],
                   bodyLength : position,
                   receiveQueueLength : Object.keys(this.receiveQueue).length
                 });
-                // this.log('Calling next.');
                 next();
               });
             });
-          if (resolver === null)
+          if (ended) return;
+          if (resolver === null) {
             return new Promise(f => { resolver = f; });
-          else
+          } else {
             return resolver(new Promise(f => { resolver = f; }));
-        });
+          }
+        }); //.then(() => { console.log('*** FINISHED ANOTHER ***'); });
       });
 
       app.use((err, req, res, next) => { // Have to pass in next for express to work
@@ -503,6 +530,15 @@ module.exports = function (RED) {
         });
       });
     }
+
+    this.on('close', () => {
+      if (server) {
+        server.close(() => {
+          node.warn('Closed server on node close.');
+        });
+      }
+      this.close();
+    });
   }
   util.inherits(SpmHTTPIn, redioactive.Funnel);
   RED.nodes.registerType('spm-http-in', SpmHTTPIn);

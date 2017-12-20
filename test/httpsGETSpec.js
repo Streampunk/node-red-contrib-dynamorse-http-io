@@ -16,55 +16,60 @@
 const TestUtil = require('dynamorse-test');
 const testCommon = require('./testCommon.js');
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
+TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in pull simplest case 40ms', {
   numPushes: 10,
   timeout: 40,
   parallel: 1,
   format: 'video',
+  mode: 'pull',
   protocol: 'HTTPS',
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull simplest case 40ms', {
+TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in pull simplest case 40ms', {
   numPushes: 10,
   timeout: 40,
   parallel: 1,
   format: 'audio',
+  mode: 'pull',
   protocol: 'HTTPS',
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
+TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in pull 100 as fast as', {
   numPushes: 100,
   timeout: 0,
   parallel: 1,
   format: 'video',
+  mode: 'pull',
   protocol: 'HTTPS',
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 2 threads', {
+TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in pull 2 threads', {
   numPushes: 10,
   timeout: 40,
   parallel: 2,
   format: 'video',
+  mode: 'pull',
   protocol: 'HTTPS',
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 3 threads', {
+TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in pull 3 threads', {
   numPushes: 10,
   timeout: 40,
   parallel: 3,
   format: 'video',
+  mode: 'pull',
   protocol: 'HTTPS',
   spoutCount: 0,
   seqTest: [],
@@ -76,6 +81,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 4 threads', {
   timeout: 40,
   parallel: 4,
   format: 'video',
+  mode: 'pull',
   protocol: 'HTTPS',
   spoutCount: 0,
   seqTest: [],

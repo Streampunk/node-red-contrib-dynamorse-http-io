@@ -238,14 +238,17 @@ module.exports = function (RED) {
                   'Arachnid-FlowID': uuid.unparse(g.flow_id),
                   'Arachnid-SourceID': uuid.unparse(g.source_id),
                   'Arachnid-SenderID': senderID,
-                  'Arachnid-Packing': packing
+                  'Arachnid-Packing': packing,
+                  'Arachnid-GrainDuration': g.duration ?
+                    Grain.prototype.formatDuration(g.duration) :
+                    `${srcTags.grainDuration[0]}/${srcTags.grainDuration[1]}`
                 }
               };
               if (g.timecode)
                 options.headers['Arachnid-Timecode'] =
                   Grain.prototype.formatTimecode(g.timecode);
               if (g.duration)
-                options.headers['Arachnid-GrainDuration'] =
+                options.headers['Arachnid-this.'] =
                   Grain.prototype.formatDuration(g.duration);
 
               // this.log(`About to make request ${options.path}.`);
@@ -452,8 +455,8 @@ module.exports = function (RED) {
       });
     } // End pull
 
-    function sendEnd(hwm) {
-      protocol.request({
+    function sendEnd (hwm) {
+      var req = protocol.request({
         agent: keepAliveAgent,
         rejectUnauthorized: false,
         hostname: fullURL.hostname,
@@ -462,9 +465,14 @@ module.exports = function (RED) {
         method: 'PUT',
       }, res => {
         res.on('error', e => {
-          this.warn(`Unexpected error after pushing stream end: ${e}`);
+          node.warn(`Unexpected error after pushing stream end: ${e}`);
         });
       });
+      req.on('error', e => {
+        node.warn(`Unexpected error when requesting end of stream: ${e}`);
+      });
+      req.end();
+      return req;
     }
 
     this.clearDown = null;
@@ -492,6 +500,10 @@ module.exports = function (RED) {
       clearInterval(this.clearDown);
       this.clearDown = null;
       ended = true;
+      if (config.mode === 'push' && activeThreads <= 0 &&
+          ended === true && grainCache.length === 0) {
+        setImmediate(() => sendEnd(highWaterMark));
+      }
       if (server) setTimeout(() => {
         server.close(() => {
           node.warn('Closed server.');
