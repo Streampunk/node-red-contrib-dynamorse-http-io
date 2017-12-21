@@ -75,15 +75,17 @@ function clearCacheBefore(c, t) {
 
 function once (fn, context) {
   var result;
-  return function() {
+  var cacheFn = fn;
+  var o = () => {
     if (fn) {
       result = fn.apply(context || this, arguments);
       fn = null;
     }
     return result;
   };
+  o.reset = () => { fn = cacheFn; };
+  return o;
 }
-
 
 module.exports = function (RED) {
   // var count = 0;
@@ -123,6 +125,7 @@ module.exports = function (RED) {
       dns.lookup(fullURL.hostname, (err, addr/*, family*/) => {
         if (err) return reject(err);
         fullURL.hostname = addr;
+        node.wsMsg.send({'resolved': { addr: addr }});
         resolve(addr);
       });
     });
@@ -161,7 +164,7 @@ module.exports = function (RED) {
         node.warn(`HTTP out received something that is not a grain: ${x}`);
         return next();
       }
-      // this.log(`RECD-NEXT ${x} ${started}`);
+      // this.log(`RECD-NEXT ${x}`);
       var nextJob = (srcTags) ?
         Promise.resolve(x) :
         this.findCable(x).then(cable => {
@@ -199,6 +202,7 @@ module.exports = function (RED) {
       nextJob.then(() => {
         grainCache.push({ grain : x,
           nextFn : (config.backpressure === true) ? once(next) : nop });
+        node.wsMsg.send({'push_grain': { ts: Grain.prototype.formatTimestamp(x.ptpOrigin) }});
         if (grainCache.length > config.cacheSize) {
           grainCache = grainCache.slice(grainCache.length - config.cacheSize);
         }
@@ -215,10 +219,19 @@ module.exports = function (RED) {
           var sendMore = () => {
             var newThreadCount = config.parallel - activeThreads;
             newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
-            // this.log(`Getting pushy ${grainCache.length} ${activeThreads} ${newThreadCount}.`);
-            var left = grainCache.slice(0, newThreadCount);
-            var right = grainCache.slice(newThreadCount);
-            grainCache = right;
+            node.wsMsg.send({'send_more': { grainCacheLen: grainCache.length,
+              activeThreads: activeThreads, newThreadCount: newThreadCount }});
+            if (grainCache.length >= newThreadCount) {
+              var left = grainCache.slice(0, newThreadCount);
+              var right = grainCache.slice(newThreadCount);
+              grainCache = right;
+            } else {
+              if (grainCache.length > 0) {
+                grainCache[0].nextFn();
+                grainCache[0].nextFn.reset();
+              }
+              return new Promise(f => { setTimeout(f, 10); });
+            }
             left.forEach(gn => {
               activeThreads++;
               var g = gn.grain;
@@ -251,7 +264,7 @@ module.exports = function (RED) {
                 options.headers['Arachnid-this.'] =
                   Grain.prototype.formatDuration(g.duration);
 
-              // this.log(`About to make request ${options.path}.`);
+              this.log(`About to make request ${options.path}.`);
               var req = protocol.request(options, res => {
                 activeThreads--;
                 // this.log(`Response received ${activeThreads}.`);
@@ -278,11 +291,11 @@ module.exports = function (RED) {
                 res.on('data', () => {});
                 res.on('end', () => {
                   highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
-                  // this.log(`Response ${req.path} has ended.`);
+                  this.warn(`Response ${req.path} has ended. ${grainCount} ${activeThreads} ${ended} ${grainCache.length}`);
                   gn.nextFn();
-                  if (activeThreads <= 0 && ended === true && grainCache.length === 0) {
+                  /* if (activeThreads <= 0 && ended === true && grainCache.length === 0) {
                     setImmediate(() => sendEnd(highWaterMark));
-                  }
+                  } */
                 });
                 res.on('error', e => {
                   this.warn(`Received error when handling push result: ${e}`);
@@ -296,7 +309,8 @@ module.exports = function (RED) {
                 activeThreads--;
               });
             });
-          };
+          }; // sendMore function
+          console.log('>>> Appending to DNS promise.', grainCount++);
           dnsPromise = dnsPromise.then(sendMore);
         } // End push
       }).catch(err => {
@@ -500,9 +514,9 @@ module.exports = function (RED) {
       clearInterval(this.clearDown);
       this.clearDown = null;
       ended = true;
-      if (config.mode === 'push' && activeThreads <= 0 &&
-          ended === true && grainCache.length === 0) {
-        setImmediate(() => sendEnd(highWaterMark));
+      if (config.mode === 'push') {
+        console.log('>>> Adding bye bye promise.');
+        dnsPromise = dnsPromise.then(() => setTimeout(() => sendEnd(highWaterMark), 1000));
       }
       if (server) setTimeout(() => {
         server.close(() => {

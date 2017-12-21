@@ -16,7 +16,7 @@
 const TestUtil = require('dynamorse-test');
 const testCommon = require('./testCommon.js');
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push simplest case 40ms', {
+/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push simplest case 40ms', {
   numPushes: 10,
   timeout: 40,
   parallel: 1,
@@ -26,9 +26,9 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push simplest case 40ms', {
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
-}, testCommon.httpGraph, testCommon.recvMsg);
+}, testCommon.httpGraph, testCommon.recvMsg); */
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push simplest case 40ms', {
+/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push simplest case 40ms', {
   numPushes: 10,
   timeout: 40,
   parallel: 1,
@@ -50,12 +50,12 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 100 as fast as', {
   spoutCount: 0,
   seqTest: [],
   flowTimeout: 10000
-}, testCommon.httpGraph, testCommon.recvMsg);
+}, testCommon.httpGraph, testCommon.recvMsg); */
 
-/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 2 threads', {
+TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 2 threads', {
   numPushes: 10,
   timeout: 40,
-  parallel: 2,
+  parallel: 4,
   format: 'video',
   mode: 'push',
   protocol: 'HTTP',
@@ -64,7 +64,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 100 as fast as', {
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 3 threads', {
+/* TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 3 threads', {
   numPushes: 10,
   timeout: 40,
   parallel: 3,

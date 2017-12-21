@@ -95,7 +95,7 @@ module.exports = function (RED) {
     var flowID = null;
     var flows = null;
     var tags = {};
-    var totalConcurrent = +config.parallel;
+    const totalConcurrent = +config.parallel;
     var ended = false;
     var pushEnd = null;
 
@@ -159,7 +159,7 @@ module.exports = function (RED) {
 
     const buffers = [];
     const bufferIdx = [];
-    for ( let x = 0 ; x < config.parallel ; x++) {
+    for ( let x = 0 ; x < totalConcurrent ; x++) {
       let threadBufs = [];
       for ( let y = 0 ; y < config.maxBuffer ; y++ ) {
         threadBufs.push(Buffer.alloc(minBufferSize));
@@ -215,7 +215,7 @@ module.exports = function (RED) {
         if (res.statusCode === 410) {
           node.warn(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
           // push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
-          nextRequest = startThreads(+config.parallel);
+          nextRequest = startThreads(totalConcurrent);
           activeThreads[x] = false;
           return next();
         }
@@ -336,8 +336,8 @@ module.exports = function (RED) {
     };
 
     var activeThreads =
-      [ false, false, false, false, false, false].slice(0, +config.parallel);
-    var nextRequest = startThreads(+config.parallel);
+      [ false, false, false, false, false, false].slice(0, totalConcurrent);
+    var nextRequest = startThreads(totalConcurrent);
 
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
@@ -348,10 +348,11 @@ module.exports = function (RED) {
       var started = false;
       var app = express();
       var bufferLoop = 0;
+      var count = 0;
       //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
       app.put(config.path + '/:ts', (req, res, next) => {
-        // this.log(`Received request ${req.path}.`);
+        this.log(`Received request ${req.path}.`);
         if (Object.keys(this.receiveQueue).length >= config.cacheSize) {
           return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
         }
@@ -369,19 +370,26 @@ module.exports = function (RED) {
           buf: buffers[idx[0], idx[1]]
         };
         if (started === false) {
+          node.warn('Calling all resolvers - first time.');
           resolver(makeFlowAndSource(req.headers));
           started = true;
         } else {
-          if (resolver) resolver();
+          node.warn('Calling all resolvers.');
+          if (resolver) {
+            resolver();
+          } else {
+            node.warn('No resolver to call.');
+          }
         }
         resolver = null;
       });
 
       app.put(config.path + '/:hwm/end', (req, res) => {
-        node.log(`End received with remote high water mark ${req.params.hwm} and current low water mark ${this.lowWaterMark}.`);
+        node.warn(`End received with remote high water mark ${req.params.hwm} and current low water mark ${this.lowWaterMark}.`);
         ended = true;
         node.wsMsg.send({'end_received': { hwm: req.params.hwm }});
         flowPromise = flowPromise.then(() => {
+          console.log('Pushing end to spout.');
           if (pushEnd) pushEnd();
           if (server) {
             setTimeout(() => {
@@ -401,10 +409,14 @@ module.exports = function (RED) {
 
       this.generator((push, next) => {
         pushEnd = () => { push(null, redioactive.end); };
+        count++;
         flowPromise = flowPromise.then(() => {
           var sortedKeys = Object.keys(this.receiveQueue)
             .sort(compareVersions);
-          var numberToSend = sortedKeys.length - config.parallel + 1;
+          var numberToSend = (ended) ? sortedKeys.length :
+            sortedKeys.length - totalConcurrent + 1;
+          console.log('Well HELLO!', numberToSend, sortedKeys);
+          node.log(`numberToSend: ${numberToSend} with parallel: ${totalConcurrent}.`);
           sortedKeys.slice(0, (numberToSend >= 0) ? numberToSend : 0)
             .forEach(gts => {
               var req = this.receiveQueue[gts].req;
@@ -453,13 +465,14 @@ module.exports = function (RED) {
                 next();
               });
             });
+          if (count < totalConcurrent) next();
           if (ended) return;
           if (resolver === null) {
             return new Promise(f => { resolver = f; });
           } else {
             return resolver(new Promise(f => { resolver = f; }));
           }
-        }); //.then(() => { console.log('*** FINISHED ANOTHER ***'); });
+        }); // .then(() => { console.log('>>>', JSON.stringify(resolver)); });
       });
 
       app.use((err, req, res, next) => { // Have to pass in next for express to work
