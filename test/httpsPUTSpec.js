@@ -52,38 +52,16 @@ TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in push 100 as fast as', {
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-/* TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in push 2 threads', {
-  numPushes: 10,
-  timeout: 40,
-  parallel: 2,
-  format: 'video',
-  mode: 'push',
-  protocol: 'HTTPS',
-  spoutCount: 0,
-  seqTest: [],
-  flowTimeout: 10000
-}, testCommon.httpGraph, testCommon.recvMsg);
-
-TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in push 3 threads', {
-  numPushes: 10,
-  timeout: 40,
-  parallel: 3,
-  format: 'video',
-  mode: 'push',
-  protocol: 'HTTPS',
-  spoutCount: 0,
-  seqTest: [],
-  flowTimeout: 10000
-}, testCommon.httpGraph, testCommon.recvMsg);
-
-TestUtil.nodeRedTest('Testing HTTPS-out to HTTPS-in push 4 threads', {
-  numPushes: 10,
-  timeout: 40,
-  parallel: 4,
-  format: 'video',
-  mode: 'push',
-  protocol: 'HTTPS',
-  spoutCount: 0,
-  seqTest: [],
-  flowTimeout: 10000
-}, testCommon.httpGraph, testCommon.recvMsg); */
+for ( let t = 2 ; t <= 6 ; t++ ) {
+  TestUtil.nodeRedTest(`Testing HTTPS-out to HTTPS-in push ${t} threads`, {
+    numPushes: 10,
+    timeout: 40,
+    parallel: t,
+    format: 'video',
+    mode: 'push',
+    protocol: 'HTTPS',
+    spoutCount: 0,
+    seqTest: [],
+    flowTimeout: 10000
+  }, testCommon.httpGraph, testCommon.recvMsg);
+}

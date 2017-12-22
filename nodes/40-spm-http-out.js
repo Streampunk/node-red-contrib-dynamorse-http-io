@@ -191,9 +191,9 @@ module.exports = function (RED) {
               protocol.createServer(app) : protocol.createServer(options, app))
               .listen(config.port, err => {
                 if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
-                node.log(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
+                node.warn(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
               });
-            server.on('error', this.warn);
+            server.on('error', node.warn);
           }
           // for ( var u = 1 ; u < config.parallel ; u++ ) { next(); } // Make sure cache has enough on start
           begin = process.hrtime();
@@ -236,6 +236,7 @@ module.exports = function (RED) {
               activeThreads++;
               var g = gn.grain;
               var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
+              highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
               var options = {
                 agent: keepAliveAgent,
                 rejectUnauthorized: false,
@@ -264,7 +265,7 @@ module.exports = function (RED) {
                 options.headers['Arachnid-this.'] =
                   Grain.prototype.formatDuration(g.duration);
 
-              this.log(`About to make request ${options.path}.`);
+              // this.log(`About to make request ${options.path}.`);
               var req = protocol.request(options, res => {
                 activeThreads--;
                 // this.log(`Response received ${activeThreads}.`);
@@ -274,11 +275,11 @@ module.exports = function (RED) {
                     grainCache = reorderCache(grainCache);
                     sendMore();
                   }, 5);
-                  return this.warn(`Going too fast! Returning grain ${ts} to cache.`);
+                  return node.warn(`Going too fast! Returning grain ${ts} to cache.`);
                 }
                 if (res.statusCode === 409) {
                   gn.nextFn();
-                  return this.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
+                  return node.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
                 }
                 if (res.statusCode === 400) {
                   var olderCache = grainCache;
@@ -286,31 +287,26 @@ module.exports = function (RED) {
                   for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
                     olderCache[x].nextFn();
                   }
-                  return this.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
+                  return node.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
                 }
                 res.on('data', () => {});
                 res.on('end', () => {
-                  highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
-                  this.warn(`Response ${req.path} has ended. ${grainCount} ${activeThreads} ${ended} ${grainCache.length}`);
+                  node.log(`Response ${req.path} has ended. ${grainCount} ${activeThreads} ${ended} ${grainCache.length}`);
                   gn.nextFn();
-                  /* if (activeThreads <= 0 && ended === true && grainCache.length === 0) {
-                    setImmediate(() => sendEnd(highWaterMark));
-                  } */
                 });
                 res.on('error', e => {
-                  this.warn(`Received error when handling push result: ${e}`);
+                  node.warn(`Received error when handling push result: ${e}`);
                 });
               });
 
               req.end(g.buffers[0]);
 
               req.on('error', e => {
-                this.warn(`Received error when making a push grain request: ${e}`);
+                node.warn(`Received error when making a push grain request: ${e}`);
                 activeThreads--;
               });
             });
           }; // sendMore function
-          console.log('>>> Appending to DNS promise.', grainCount++);
           dnsPromise = dnsPromise.then(sendMore);
         } // End push
       }).catch(err => {
@@ -515,8 +511,7 @@ module.exports = function (RED) {
       this.clearDown = null;
       ended = true;
       if (config.mode === 'push') {
-        console.log('>>> Adding bye bye promise.');
-        dnsPromise = dnsPromise.then(() => setTimeout(() => sendEnd(highWaterMark), 1000));
+        dnsPromise = dnsPromise.then(() => sendEnd(highWaterMark));
       }
       if (server) setTimeout(() => {
         server.close(() => {

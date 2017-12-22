@@ -97,7 +97,7 @@ module.exports = function (RED) {
     var tags = {};
     const totalConcurrent = +config.parallel;
     var ended = false;
-    var pushEnd = null;
+    var endMark = null;
 
     function makeFlowAndSource (headers) {
       var contentType = headers['content-type'];
@@ -172,7 +172,7 @@ module.exports = function (RED) {
     var endCount = 0;
     var endTimeout = null;
     var runNext = (x, push, next) => {
-      var requestTimer = process.hrtime();
+      // var requestTimer = process.hrtime();
       // this.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
       var req = protocol.request({
         rejectUnauthorized: false,
@@ -225,7 +225,7 @@ module.exports = function (RED) {
             setTimeout(() => {
               node.log('Pushing redioactive.end.');
               push(null, redioactive.end);
-            }, 1000);
+            }, 200); // TODO smell!
           activeThreads[x] = false;
           ended = true;
           return;
@@ -267,7 +267,7 @@ module.exports = function (RED) {
             pushGrains(g, push);
             activeThreads[x] = false;
             bufferIdx[x]++;
-            console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+            // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
             next();
           });
         }
@@ -295,7 +295,7 @@ module.exports = function (RED) {
         next();
       });
       req.end();
-      requestTimer = process.hrtime();
+      // requestTimer = process.hrtime();
     };
 
     var grainQueue = { };
@@ -370,11 +370,9 @@ module.exports = function (RED) {
           buf: buffers[idx[0], idx[1]]
         };
         if (started === false) {
-          node.warn('Calling all resolvers - first time.');
           resolver(makeFlowAndSource(req.headers));
           started = true;
         } else {
-          node.warn('Calling all resolvers.');
           if (resolver) {
             resolver();
           } else {
@@ -387,18 +385,8 @@ module.exports = function (RED) {
       app.put(config.path + '/:hwm/end', (req, res) => {
         node.warn(`End received with remote high water mark ${req.params.hwm} and current low water mark ${this.lowWaterMark}.`);
         ended = true;
-        node.wsMsg.send({'end_received': { hwm: req.params.hwm }});
-        flowPromise = flowPromise.then(() => {
-          console.log('Pushing end to spout.');
-          if (pushEnd) pushEnd();
-          if (server) {
-            setTimeout(() => {
-              server.close(() => {
-                node.warn('Closed server.');
-              });
-            }, 1000);
-          }
-        });
+        endMark = req.params.hwm;
+        node.wsMsg.send({'end_received': { hwm: endMark }});
         if (resolver) resolver();
         resolver = null;
         res.json({
@@ -408,14 +396,18 @@ module.exports = function (RED) {
       });
 
       this.generator((push, next) => {
-        pushEnd = () => { push(null, redioactive.end); };
         count++;
         flowPromise = flowPromise.then(() => {
           var sortedKeys = Object.keys(this.receiveQueue)
             .sort(compareVersions);
-          var numberToSend = (ended) ? sortedKeys.length :
+          var numberToSend = (ended) ? 1 :
             sortedKeys.length - totalConcurrent + 1;
-          console.log('Well HELLO!', numberToSend, sortedKeys);
+          if (ended && sortedKeys.length === 0) {
+            push(null, redioactive.end);
+            return server.close(() => {
+              node.warn('Closed server.');
+            });
+          }
           node.log(`numberToSend: ${numberToSend} with parallel: ${totalConcurrent}.`);
           sortedKeys.slice(0, (numberToSend >= 0) ? numberToSend : 0)
             .forEach(gts => {
@@ -426,7 +418,7 @@ module.exports = function (RED) {
               delete this.receiveQueue[gts];
               if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
                 next();
-                this.warn(`Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`);
+                node.warn(`Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`);
                 return res.status(400).json({
                   code: 400,
                   error: `Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`,
@@ -443,6 +435,7 @@ module.exports = function (RED) {
               req.on('data', data => {
                 position += data.copy(buf, position);
               });
+              res.on('error', node.warn);
               req.on('end', () => {
                 let ptpOrigin = req.headers['arachnid-ptporigin'];
                 let ptpSync = req.headers['arachnid-ptpsync'];
@@ -456,6 +449,11 @@ module.exports = function (RED) {
                 push(null, g);
                 this.lowWaterMark = gts;
 
+                if (ended) {
+                  if (resolver) resolver();
+                  resolver = null;
+                }
+
                 res.json({
                   message: 'grain_recieved',
                   timestamp: req.headers['arachnid-ptporigin'],
@@ -466,7 +464,6 @@ module.exports = function (RED) {
               });
             });
           if (count < totalConcurrent) next();
-          if (ended) return;
           if (resolver === null) {
             return new Promise(f => { resolver = f; });
           } else {
@@ -476,7 +473,7 @@ module.exports = function (RED) {
       });
 
       app.use((err, req, res, next) => { // Have to pass in next for express to work
-        this.warn(err);
+        node.warn(err);
         if (err.status) {
           res.status(err.status).json({
             code: err.status,
@@ -513,9 +510,9 @@ module.exports = function (RED) {
           if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
         });
       server.on('listening', () => {
-        this.log(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
+        node.warn(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
       });
-      server.on('error', this.warn);
+      server.on('error', node.warn);
     } else { // config.mode is set to pull
       dns.lookup(fullURL.hostname, (err, addr/*, family*/) => {
         if (err) return this.preFlightError(`Unable to resolve DNS for ${fullURL.hostname}: ${err}`);
