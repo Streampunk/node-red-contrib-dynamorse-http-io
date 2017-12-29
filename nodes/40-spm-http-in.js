@@ -16,7 +16,6 @@
 const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
 const util = require('util');
 const express = require('express');
-// var bodyParser = require('body-parser');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -172,7 +171,7 @@ module.exports = function (RED) {
     var endCount = 0;
     var endTimeout = null;
     var runNext = (x, push, next) => {
-      // var requestTimer = process.hrtime();
+      var requestTimer = process.hrtime();
       // this.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
       var req = protocol.request({
         rejectUnauthorized: false,
@@ -267,7 +266,9 @@ module.exports = function (RED) {
             pushGrains(g, push);
             activeThreads[x] = false;
             bufferIdx[x]++;
-            // console.log(`Thread ${x}: Retrieved ${res.headers['arachnid-ptporigin']} in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+            if (config.logTime) {
+              console.log(`Thread ${x}: Retrieved in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
+            }
             next();
           });
         }
@@ -295,7 +296,7 @@ module.exports = function (RED) {
         next();
       });
       req.end();
-      // requestTimer = process.hrtime();
+      requestTimer = process.hrtime();
     };
 
     var grainQueue = { };
@@ -349,7 +350,6 @@ module.exports = function (RED) {
       var app = express();
       var bufferLoop = 0;
       var count = 0;
-      //app.use(bodyParser.raw({ limit : config.payloadLimit || 6000000 }));
 
       app.put(config.path + '/:ts', (req, res, next) => {
         this.log(`Received request ${req.path}.`);

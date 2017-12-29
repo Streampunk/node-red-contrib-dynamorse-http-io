@@ -16,7 +16,6 @@
 const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
 const util = require('util');
 const express = require('express');
-// var bodyParser = require('body-parser');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -315,7 +314,6 @@ module.exports = function (RED) {
     });
     if (config.mode === 'pull') {
       app = express();
-      // app.use(bodyParser.raw({ limit : 6000000 }));
 
       app.get(config.path, (req, res) => {
         res.json({

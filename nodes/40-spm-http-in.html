@@ -30,7 +30,8 @@
       regenerate : { value : false },
       parallel : { value : 1, validate : RED.validators.number() },
       cacheSize : { value : 10, validate : RED.validators.number() },
-      fragments : { value : 1, validate : RED.validators.number() }
+      fragments : { value : 1, validate : RED.validators.number() },
+      logTime : { value false }
     },
     inputs: 0,
     outputs: 1,
@@ -91,6 +92,11 @@
   <label for="node-input-fragments" style="width: 100px">&nbsp;<i class="fa fa-columns" aria-hidden="true"></i> fragments</label>
   <input type="number" id="node-input-fragments" min="1" max="8" placeholder="1" style="width: 80px">
 </div>
+<div class="form-row">
+  <label for="node-input-logTime" style="width: 120px"><i class="fa fa-file-o" aria-hidden="true"></i>log time?</label>
+  <input type="checkbox" id="node-input-logTime" style="width: 80px">
+</div>
+
 </script>
 
 <style>
@@ -166,6 +172,10 @@
    <tr>
     <td><i class="fa fa-columns" aria-hidden="true"></i> fragments</td>
     <td>Number of equal-sized fragments to sub-divide each grain into. (Not implemented.)</td>
+   </tr>
+   <tr>
+    <td><i class="fa fa-file-o" aria-hidden="true"></i> log time?</td>
+    <td>Log the time each grain takes to arrive to the console? (pull only)</td>
    </tr>
   </table>
   </div>
