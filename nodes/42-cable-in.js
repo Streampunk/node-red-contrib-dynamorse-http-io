@@ -23,6 +23,7 @@ module.exports = function (RED) {
 
     var node = this;
     node.warn(`Unimplemented CableIn node with config: ${JSON.stringify(config, null, 2)}`);
+
   }
   util.inherits(CableIn, redioactive.Funnel);
   RED.nodes.registerType('cable-in', CableIn);
