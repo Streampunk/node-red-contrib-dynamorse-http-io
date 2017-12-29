@@ -15,7 +15,7 @@
 -->
 
 <script type="text/javascript">
-  RED.nodes.registerType('spm-http-out',{
+  RED.nodes.registerType('cable-out',{
     category: 'spout',
     color: '#FFFBD5',
     defaults: {
@@ -38,12 +38,12 @@
     align: 'right',
     icon: "spout.png",
     label: function() {
-      return this.name || "spm-http-out";
+      return this.name || "cable-out";
     }
   });
 </script>
 
-<script type="text/x-red" data-template-name="spm-http-out">
+<script type="text/x-red" data-template-name="cable-out">
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> name</label>
     <input type="text" id="node-input-name" placeholder="name">
@@ -104,12 +104,16 @@
 }
 </style>
 
-<script type="text/x-red" data-help-name="spm-http-out">
-  <h1>HTTP output</h1>
+<script type="text/x-red" data-help-name="cable-out">
+  <h1>Cable HTTP output</h1>
   <h2>Streampunk Media arachnid</h2>
-  <p>Send an <a href="http://github.com/Streampunk/arachnid">arachnid</a> HTTP(S)
-  stream, providing a simple media transport using a simple HTTP encapslation,
-  push or pull, from an NMOS-style flow.</p>
+  <p>Send multiple <a href="http://github.com/Streampunk/arachnid">arachnid</a> HTTP(S)
+  streams - a media transport using a simple HTTP encapslation,
+  push or pull - carrying an entire logical cable.</p>
+
+  <p>At the root of a RESTful path, a logical cable is described. The strands of that
+  cable are exposed as sub-resource streams for video, audio and data that are carried
+  as separate HTTP(S) streams according to the single-stream arachnid protocol.</p>
 
   <p>In <em>pull</em> mode, this instance of dynamorse becomes an HTTP(S) server.
   In <em>push</em> mode, dynamorse is an HTTP(S) client using PUT requests.</p>
@@ -190,5 +194,5 @@
   </a> for information on how to generate keys and certificates.</p>
 
   <h3>Maturity</h3>
-  <p>Complete working transport with test coverage. Fragments are not yet supported.</p>
+  <p>Work in progress. Fragments are not yet supported.</p>
 </script>

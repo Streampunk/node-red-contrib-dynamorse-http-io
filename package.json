@@ -25,7 +25,9 @@
   "node-red": {
     "nodes": {
       "spm-http-in": "nodes/40-spm-http-in.js",
-      "spm-http-out": "nodes/40-spm-http-out.js"
+      "spm-http-out": "nodes/40-spm-http-out.js",
+      "cable-in": "nodes/42-cable-in.js",
+      "cable-out": "nodes/42-cable-out.js"
     }
   },
   "repository": {
