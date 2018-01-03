@@ -108,8 +108,6 @@ module.exports = function (RED) {
     var packing = 'raw';
     var app = null;
     var server = null;
-    var sender = null;
-    var senderID = uuid.v4();
     var begin = null;
     var grainCount = 0;
     var ended = false;
@@ -250,7 +248,6 @@ module.exports = function (RED) {
                   'Arachnid-PTPSync': Grain.prototype.formatTimestamp(g.ptpSync),
                   'Arachnid-FlowID': uuid.unparse(g.flow_id),
                   'Arachnid-SourceID': uuid.unparse(g.source_id),
-                  'Arachnid-SenderID': senderID,
                   'Arachnid-Packing': packing,
                   'Arachnid-GrainDuration': g.duration ?
                     Grain.prototype.formatDuration(g.duration) :
@@ -321,7 +318,6 @@ module.exports = function (RED) {
           currentCacheSize : grainCache.length,
           flow_id : (grainCache.length > 0) ? uuid.unparse(grainCache[0].grain.flow_id) : '',
           source_id : (grainCache.length > 0) ? uuid.unparse(grainCache[0].grain.source_id) : '',
-          sender_id : (sender) ? sender.id : '',
           cacheTS : grainCache.map(g => {
             return Grain.prototype.formatTimestamp(g.grain.ptpOrigin);
           }),
@@ -414,7 +410,6 @@ module.exports = function (RED) {
         res.setHeader('Arachnid-PTPSync', Grain.prototype.formatTimestamp(g.ptpSync));
         res.setHeader('Arachnid-FlowID', uuid.unparse(g.flow_id));
         res.setHeader('Arachnid-SourceID', uuid.unparse(g.source_id));
-        res.setHeader('Arachnid-SenderID', senderID);
         res.setHeader('Arachnid-Packing', packing);
         if (g.timecode)
           res.setHeader('Arachnid-Timecode',
