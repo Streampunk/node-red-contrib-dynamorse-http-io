@@ -13,8 +13,13 @@
   limitations under the License.
 */
 
+
+const { Grain, PTPMaths : { compareVersions, msOriginTs } } =
+  require('node-red-contrib-dynamorse-core').Grain;
 const uuid = require('uuid');
-const Grain = require('node-red-contrib-dynamorse-core').Grain;
+const http = require('http');
+const https = require('https');
+const url = require('url');
 
 const variation = 1; // Grain timing requests may vary +-1ms
 
@@ -23,11 +28,6 @@ var statusError = (status, message) => {
   e.status = status;
   return e;
 };
-
-function msOriginTs(g) {
-  return (g.ptpOrigin.readUIntBE(0, 6) * 1000) +
-    (g.ptpOrigin.readUInt32BE(6) / 1000000|0);
-}
 
 function makeHeaders (wire) {
   var srcTags = wire.tags;
@@ -222,14 +222,37 @@ function pullStream (router, config, grainCache, wire, logger, endFn) {
     });
   }, 1000);
 
-  return {
-    startChecks: startChecks,
-    clearDown: clearDown
-  };
+  return { startChecks, clearDown };
 }
 
-function pushMore (wire, config, grainCache, activeThreads, logger, highWaterMark, keepAliveAgent,
-  compareVersions, fullURL, contentType, packing, srcTags, protocol, reorderCache, clearCacheBefore) {
+function pushMore (wire, config, grainCache, logger, highWaterMark) {
+
+  var keepAliveAgent = protocol.Agent({ keepAlive : true });
+  var protocol = (config.protocol === 'HTTP') ? http : https;
+
+  var fullURL = url.parse(`${config.pushURL}:${config.port}${config.path}`);
+  var activeThreads = 0;
+
+  var { packing, contentType, grainDuration } = makeHeaders(wire);
+
+  function reorderCache(c) {
+    var co = {};
+    var r = [];
+    c.forEach(x => {
+      co[Grain.prototype.formatTimestamp(x.grain.ptpOrigin)] = x; });
+    Object.keys(co).sort(compareVersions).forEach(x => { r.push(co[x]); });
+    return r;
+  }
+
+  function clearCacheBefore(c, t) {
+    var s = c;
+    while (s.length > 0 && compareVersions(
+      Grain.prototype.formatTimestamp(s[0].grain.ptpOrigin), t) < 0) {
+      s = s.slice(1);
+    }
+    return s;
+  }
+
   var sendMore = () => {
     var newThreadCount = config.parallel - activeThreads;
     newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
@@ -250,7 +273,8 @@ function pushMore (wire, config, grainCache, activeThreads, logger, highWaterMar
       activeThreads++;
       var g = gn.grain;
       var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
-      highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
+      highWaterMark.value =
+        (compareVersions(ts, highWaterMark.value) > 0) ? ts : highWaterMark.value;
       var options = {
         agent: keepAliveAgent,
         rejectUnauthorized: false,
@@ -268,14 +292,14 @@ function pushMore (wire, config, grainCache, activeThreads, logger, highWaterMar
           'Arachnid-Packing': packing,
           'Arachnid-GrainDuration': g.duration ?
             Grain.prototype.formatDuration(g.duration) :
-            `${srcTags.grainDuration[0]}/${srcTags.grainDuration[1]}`
+            `${grainDuration[0]}/${grainDuration[1]}`
         }
       };
       if (g.timecode)
         options.headers['Arachnid-Timecode'] =
           Grain.prototype.formatTimecode(g.timecode);
       if (g.duration)
-        options.headers['Arachnid-this.'] =
+        options.headers['Arachnid-GrainDuration'] =
           Grain.prototype.formatDuration(g.duration);
 
       // this.log(`About to make request ${options.path}.`);

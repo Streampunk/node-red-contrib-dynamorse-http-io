@@ -13,13 +13,13 @@
   limitations under the License.
 */
 
-const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
+const { Redioactive, Grain, PTPMaths : {
+  compareVersions, msOriginTs } } = require('node-red-contrib-dynamorse-core');
 const util = require('util');
 const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const Grain = require('node-red-contrib-dynamorse-core').Grain;
 const uuid = require('uuid');
 const dns = require('dns');
 const url = require('url');
@@ -32,27 +32,6 @@ var statusError = (status, message) => {
   e.status = status;
   return e;
 };
-
-function msOriginTs(g) {
-  return (g.ptpOrigin.readUIntBE(0, 6) * 1000) +
-    (g.ptpOrigin.readUInt32BE(6) / 1000000|0);
-}
-
-function extractVersions(v) {
-  var m = v.match(/^([0-9]+):([0-9]+)$/);
-  if (m === null) { return [Number.MAX_SAFE_INTEGER, 0]; }
-  return [+m[1], +m[2]];
-}
-
-function compareVersions(l, r) {
-  var lm = extractVersions(l);
-  var rm = extractVersions(r);
-  if (lm[0] < rm[0]) return -1;
-  if (lm[0] > rm[0]) return 1;
-  if (lm[1] < rm[1]) return -1;
-  if (lm[1] > rm[1]) return 1;
-  return 0;
-}
 
 function reorderCache(c) {
   var co = {};
@@ -90,7 +69,7 @@ module.exports = function (RED) {
   // var count = 0;
   function SpmHTTPOut (config) {
     RED.nodes.createNode(this, config);
-    redioactive.Spout.call(this, config);
+    Redioactive.Spout.call(this, config);
     var node = this;
     var srcTags = null;
     this.on('error', err => {
@@ -112,7 +91,7 @@ module.exports = function (RED) {
     var grainCount = 0;
     var ended = false;
     var activeThreads = 0;
-    var highWaterMark = '0:0';
+    var highWaterMark = { value : '0:0' };
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
     var fullPath = `${config.pushURL}:${config.port}${config.path}`;
@@ -233,7 +212,8 @@ module.exports = function (RED) {
               activeThreads++;
               var g = gn.grain;
               var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
-              highWaterMark = (compareVersions(ts, highWaterMark) > 0) ? ts : highWaterMark;
+              highWaterMark.value =
+                (compareVersions(ts, highWaterMark.value) > 0) ? ts : highWaterMark.value;
               var options = {
                 agent: keepAliveAgent,
                 rejectUnauthorized: false,
@@ -504,7 +484,7 @@ module.exports = function (RED) {
       this.clearDown = null;
       ended = true;
       if (config.mode === 'push') {
-        dnsPromise = dnsPromise.then(() => sendEnd(highWaterMark));
+        dnsPromise = dnsPromise.then(() => sendEnd(highWaterMark.value));
       }
       if (server) setTimeout(() => {
         server.close(() => {
@@ -513,6 +493,6 @@ module.exports = function (RED) {
       }, 0);
     });
   }
-  util.inherits(SpmHTTPOut, redioactive.Spout);
+  util.inherits(SpmHTTPOut, Redioactive.Spout);
   RED.nodes.registerType('spm-http-out', SpmHTTPOut);
 };

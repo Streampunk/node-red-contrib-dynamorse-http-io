@@ -13,13 +13,13 @@
   limitations under the License.
 */
 
-const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
+const { Redioactive, Grain, PTPMaths : { compareVersions, versionDiffMs } } =
+  require('node-red-contrib-dynamorse-core');
 const util = require('util');
 const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const Grain = require('node-red-contrib-dynamorse-core').Grain;
 const dns = require('dns');
 const url = require('url');
 
@@ -34,35 +34,6 @@ var statusError = (status, message) => {
   e.status = status;
   return e;
 };
-
-function extractVersions(v) {
-  var m = v.match(/^([0-9]+):([0-9]+)$/);
-  if (m === null) { return [Number.MAX_SAFE_INTEGER, 0]; }
-  return [+m[1], +m[2]];
-}
-
-function compareVersions(l, r) {
-  var lm = extractVersions(l);
-  var rm = extractVersions(r);
-  if (lm[0] < rm[0]) return -1;
-  if (lm[0] > rm[0]) return 1;
-  if (lm[1] < rm[1]) return -1;
-  if (lm[1] > rm[1]) return 1;
-  return 0;
-}
-
-function versionToMs (v) {
-  var e = extractVersions(v);
-  if (e[0] === Number.MAX_SAFE_INTEGER) return e[0];
-  return (e[0] * 1000) + (e[1] / 1000000|0);
-}
-
-function versionDiffMs (smaller, bigger) {
-  var smMs = versionToMs(smaller);
-  var bgMs = versionToMs(bigger);
-  if (smMs === Number.MAX_SAFE_INTEGER || bgMs === Number.MAX_SAFE_INTEGER) return 0;
-  return bgMs - smMs;
-}
 
 function startThreads (n) {
   let threads = [];
@@ -79,7 +50,7 @@ const paramMatch = /\b(\w+)=(\S+)\b/g;
 module.exports = function (RED) {
   function SpmHTTPIn (config) {
     RED.nodes.createNode(this, config);
-    redioactive.Funnel.call(this, config);
+    Redioactive.Funnel.call(this, config);
 
     var protocol = (config.protocol === 'HTTP') ? http : https;
     var node = this;
@@ -87,16 +58,14 @@ module.exports = function (RED) {
       config.pullURL.slice(0, -1) : config.pullURL;
     config.path = (config.path.endsWith('/')) ?
       config.path.slice(0, -1) : config.path;
-    var fullPath = `${config.pullURL}:${config.port}${config.path}`;
-    var fullURL = url.parse(fullPath);
     this.baseTime = [ Date.now() / 1000|0, (Date.now() % 1000) * 1000000 ];
+    var fullURL = url.parse(`${config.pullURL}:${config.port}${config.path}`);
     var sourceID = null;
     var flowID = null;
     var flows = null;
     var tags = {};
     const totalConcurrent = +config.parallel;
-    var ended = false;
-    var endMark = null;
+    var endState = { ended : false, endMark : null };
 
     function makeFlowAndSource (headers) {
       var contentType = headers['content-type'];
@@ -153,7 +122,7 @@ module.exports = function (RED) {
       flows = node.makeCable(cable);
       flowID = node.flowID();
       sourceID = node.sourceID();
-      return Promise.resolve(); // Used for push mode so generator runs in order
+      return Promise.resolve({ flowID, sourceID }); // Used for push mode so generator runs in order
     }
 
     const buffers = [];
@@ -222,11 +191,11 @@ module.exports = function (RED) {
           node.log(`Source stream has ended - thread ${x}.`);
           endTimeout = (endTimeout) ? endTimeout :
             setTimeout(() => {
-              node.log('Pushing redioactive.end.');
-              push(null, redioactive.end);
+              node.log('Pushing Redioactive.end.');
+              push(null, Redioactive.end);
             }, 200); // TODO smell!
           activeThreads[x] = false;
-          ended = true;
+          endState.ended = true;
           return;
         }
         if (res.statusCode === 200) {
@@ -286,7 +255,7 @@ module.exports = function (RED) {
           activeThreads[x] = true; // Don't make another request.
           endCount++;
           if (endCount === activeThreads.length) {
-            push(null, redioactive.end);
+            push(null, Redioactive.end);
           }
           return;
         }
@@ -331,8 +300,8 @@ module.exports = function (RED) {
           delete grainQueue[gts];
           highWaterMark = gts;
         });
-      if (ended && activeThreads.every(a => a === false)) {
-        push(null, redioactive.end);
+      if (endState.ended && activeThreads.every(a => a === false)) {
+        push(null, Redioactive.end);
       }
     };
 
@@ -343,7 +312,7 @@ module.exports = function (RED) {
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
       this.lowWaterMark = null;
-      this.endMark = null;
+      endState.endMark = null;
       var resolver = null;
       var flowPromise = new Promise(f => { resolver = f; });
       var started = false;
@@ -384,9 +353,9 @@ module.exports = function (RED) {
 
       app.put(config.path + '/:hwm/end', (req, res) => {
         node.warn(`End received with remote high water mark ${req.params.hwm} and current low water mark ${this.lowWaterMark}.`);
-        ended = true;
-        endMark = req.params.hwm;
-        node.wsMsg.send({'end_received': { hwm: endMark }});
+        endState.ended = true;
+        endState.endMark = req.params.hwm;
+        node.wsMsg.send({'end_received': { hwm: endState.endMark }});
         if (resolver) resolver();
         resolver = null;
         res.json({
@@ -400,10 +369,10 @@ module.exports = function (RED) {
         flowPromise = flowPromise.then(() => {
           var sortedKeys = Object.keys(this.receiveQueue)
             .sort(compareVersions);
-          var numberToSend = (ended) ? 1 :
+          var numberToSend = (endState.ended) ? 1 :
             sortedKeys.length - totalConcurrent + 1;
-          if (ended && sortedKeys.length === 0) {
-            push(null, redioactive.end);
+          if (endState.ended && sortedKeys.length === 0) {
+            push(null, Redioactive.end);
             return server.close(() => {
               node.warn('Closed server.');
             });
@@ -449,7 +418,7 @@ module.exports = function (RED) {
                 push(null, g);
                 this.lowWaterMark = gts;
 
-                if (ended) {
+                if (endState.ended) {
                   if (resolver) resolver();
                   resolver = null;
                 }
@@ -519,7 +488,7 @@ module.exports = function (RED) {
         node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
         fullURL.hostname = addr;
         this.generator((push, next) => {
-          if (ended === false) {
+          if (endState.ended === false) {
             setImmediate(() => { // Was a set timeout to allow grain cache to fill - now has logic
               // console.log('+++ DEBUG THREADS', activeThreads);
               for ( let i = 0 ; i < activeThreads.length ; i++ ) {
@@ -550,6 +519,6 @@ module.exports = function (RED) {
       this.close();
     });
   }
-  util.inherits(SpmHTTPIn, redioactive.Funnel);
+  util.inherits(SpmHTTPIn, Redioactive.Funnel);
   RED.nodes.registerType('spm-http-in', SpmHTTPIn);
 };
