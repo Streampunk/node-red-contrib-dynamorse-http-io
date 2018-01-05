@@ -24,14 +24,14 @@ const url = require('url');
 const variation = 1; // Grain timing requests may vary +-1ms
 
 var statusError = (status, message) => {
-  var e = new Error(message);
+  let e = new Error(message);
   e.status = status;
   return e;
 };
 
 function makeHeaders (wire) {
-  var srcTags = wire.tags;
-  var result = {};
+  let srcTags = wire.tags;
+  let result = {};
   result.encodingName = srcTags.encodingName;
   if (srcTags.packing && srcTags.packing.toLowerCase() === 'v210') {
     result.encodingName = 'x-v210';
@@ -42,7 +42,7 @@ function makeHeaders (wire) {
       `width=${srcTags.width}; height=${srcTags.height}; depth=${srcTags.depth}; ` +
       `colorimetry=${srcTags.colorimetry}; interlace=${srcTags.interlace}`;
   } else {
-    result.contentType = `${srcTags.format}/${srcTags.encodingName}`;
+    result.contentType = `${srcTags.format}/${result.encodingName}`;
     if (srcTags.clockRate) result.contentType += `; rate=${srcTags.clockRate}`;
     if (srcTags.channels) result.contentType += `; channels=${srcTags.channels}`;
   }
@@ -51,12 +51,13 @@ function makeHeaders (wire) {
   return result;
 }
 
-function pullStream (router, config, grainCache, wire, logger, endFn) {
+function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
 
-  var startCache = {};
-  var { contentType, packing } = makeHeaders(wire);
+  let startCache = {};
+  let { contentType, packing } = makeHeaders(wire);
 
   function startChecks (startID) {
+    let grainCache = grainCacheFn();
     if (!startID) {
       let hungry = Object.keys(startCache)
         .map(startChecks)
@@ -86,6 +87,7 @@ function pullStream (router, config, grainCache, wire, logger, endFn) {
   }
 
   router.get('/', (req, res) => {
+    let grainCache = grainCacheFn();
     res.json({
       maxCacheSize : config.cacheSize,
       currentCacheSize : grainCache.length,
@@ -140,20 +142,20 @@ function pullStream (router, config, grainCache, wire, logger, endFn) {
   });
 
   router.get('/:ts', (req, res, next) => {
+    let grainCache = grainCacheFn();
     // this.log(`Received request for ${req.params.ts}.`);
-    var nextGrain = grainCache[grainCache.length - 1].nextFn;
-    var g = null;
-    var tsMatch = req.params.ts.match(/([0-9]+):([0-9]{9})/);
+    let nextGrain = grainCache[grainCache.length - 1].nextFn;
+    let g = null;
+    let tsMatch = req.params.ts.match(/([0-9]+):([0-9]{9})/);
     if (tsMatch) {
-      var secs = +tsMatch[1]|0;
-      var nanos = +tsMatch[2]|0;
-      var rangeCheck = (secs * 1000) + (nanos / 1000000|0);
+      let secs = +tsMatch[1]|0;
+      let nanos = +tsMatch[2]|0;
+      let rangeCheck = (secs * 1000) + (nanos / 1000000|0);
       // console.log('<-> Range checking, across the universe', rangeCheck,
       //   msOriginTs(grainCache[0].grain),
       //   msOriginTs(grainCache[grainCache.length - 1].grain));
       g = grainCache.find(y => {
-
-        var grCheck = msOriginTs(y.grain);
+        let grCheck = msOriginTs(y.grain);
         return (rangeCheck >= grCheck - variation) &&
           (rangeCheck <= grCheck + variation);
       });
@@ -195,7 +197,7 @@ function pullStream (router, config, grainCache, wire, logger, endFn) {
       logger.error('Arachnid requires a grain duration to function (for now).');
     }
     res.setHeader('Content-Type', contentType);
-    var data = g.buffers[0];
+    let data = g.buffers[0];
     res.setHeader('Content-Length', data.length);
     if (req.method === 'HEAD') return res.end();
 
@@ -205,9 +207,9 @@ function pullStream (router, config, grainCache, wire, logger, endFn) {
     }
   });
 
-  var clearDown = setInterval(() => {
-    var toDelete = [];
-    var now = Date.now();
+  let clearDown = setInterval(() => {
+    let toDelete = [];
+    let now = Date.now();
     Object.keys(startCache).forEach(k => {
       if (now - startCache[k].created > 5000)
         toDelete.push(k);
@@ -225,19 +227,19 @@ function pullStream (router, config, grainCache, wire, logger, endFn) {
   return { startChecks, clearDown };
 }
 
-function pushMore (wire, config, grainCache, logger, highWaterMark) {
+function pushStream (config, wire, logger, highWaterMark) {
 
-  var keepAliveAgent = protocol.Agent({ keepAlive : true });
-  var protocol = (config.protocol === 'HTTP') ? http : https;
+  let protocol = (config.protocol === 'HTTP') ? http : https;
+  let keepAliveAgent = protocol.Agent({ keepAlive : true });
 
-  var fullURL = url.parse(`${config.pushURL}:${config.port}${config.path}`);
-  var activeThreads = 0;
+  let fullURL = url.parse(`${config.pushURL}:${config.port}${config.path}`);
+  let activeThreads = 0;
 
-  var { packing, contentType, grainDuration } = makeHeaders(wire);
+  let { packing, contentType, grainDuration } = makeHeaders(wire);
 
   function reorderCache(c) {
-    var co = {};
-    var r = [];
+    let co = {};
+    let r = [];
     c.forEach(x => {
       co[Grain.prototype.formatTimestamp(x.grain.ptpOrigin)] = x; });
     Object.keys(co).sort(compareVersions).forEach(x => { r.push(co[x]); });
@@ -245,7 +247,7 @@ function pushMore (wire, config, grainCache, logger, highWaterMark) {
   }
 
   function clearCacheBefore(c, t) {
-    var s = c;
+    let s = c;
     while (s.length > 0 && compareVersions(
       Grain.prototype.formatTimestamp(s[0].grain.ptpOrigin), t) < 0) {
       s = s.slice(1);
@@ -253,29 +255,29 @@ function pushMore (wire, config, grainCache, logger, highWaterMark) {
     return s;
   }
 
-  var sendMore = () => {
-    var newThreadCount = config.parallel - activeThreads;
+  let sendMore = (grainCache) => {
+    let newThreadCount = config.parallel - activeThreads;
     newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
     logger.wsMsg.send({'send_more': { grainCacheLen: grainCache.length,
       activeThreads: activeThreads, newThreadCount: newThreadCount }});
-    if (grainCache.length >= newThreadCount) {
-      var left = grainCache.slice(0, newThreadCount);
-      var right = grainCache.slice(newThreadCount);
-      grainCache = right;
-    } else {
+    let [ left, right ] = grainCache.length >= newThreadCount ?
+      [grainCache.slice(0, newThreadCount), grainCache.slice(newThreadCount)] :
+      [[], grainCache];
+    if (grainCache.length < newThreadCount) {
       if (grainCache.length > 0) {
         grainCache[0].nextFn();
         grainCache[0].nextFn.reset();
       }
-      return new Promise(f => { setTimeout(f, 10); });
+      return new Promise(f => { setTimeout(() => f(grainCache), 10); });
     }
+    grainCache = right;
     left.forEach(gn => {
       activeThreads++;
-      var g = gn.grain;
-      var ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
+      let g = gn.grain;
+      let ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
       highWaterMark.value =
         (compareVersions(ts, highWaterMark.value) > 0) ? ts : highWaterMark.value;
-      var options = {
+      let options = {
         agent: keepAliveAgent,
         rejectUnauthorized: false,
         hostname: fullURL.hostname,
@@ -302,10 +304,8 @@ function pushMore (wire, config, grainCache, logger, highWaterMark) {
         options.headers['Arachnid-GrainDuration'] =
           Grain.prototype.formatDuration(g.duration);
 
-      // this.log(`About to make request ${options.path}.`);
-      var req = protocol.request(options, res => {
+      let req = protocol.request(options, res => {
         activeThreads--;
-        // this.log(`Response received ${activeThreads}.`);
         if (res.statusCode === 429) {
           setTimeout(() => {
             grainCache.push(gn);
@@ -319,9 +319,9 @@ function pushMore (wire, config, grainCache, logger, highWaterMark) {
           return logger.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
         }
         if (res.statusCode === 400) {
-          var olderCache = grainCache;
+          let olderCache = grainCache;
           grainCache = clearCacheBefore(grainCache, ts);
-          for ( var x = 0 ; x < grainCache.length - olderCache.length ; x++) {
+          for ( let x = 0 ; x < grainCache.length - olderCache.length ; x++) {
             olderCache[x].nextFn();
           }
           return logger.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
@@ -343,12 +343,31 @@ function pushMore (wire, config, grainCache, logger, highWaterMark) {
         activeThreads--;
       });
     });
+
+    return grainCache;
   }; // sendMore function
 
-  return sendMore;
+  let sendEnd = hwm => {
+    let req = protocol.request({
+      agent: keepAliveAgent,
+      rejectUnauthorized: false,
+      hostname: fullURL.hostname,
+      port: fullURL.port,
+      path: `${fullURL.path}/${hwm}/end`,
+      method: 'PUT',
+    }, res => {
+      res.on('error', e => {
+        logger.warn(`Unexpected error after pushing stream end: ${e}`);
+      });
+    });
+    req.on('error', e => {
+      logger.warn(`Unexpected error when requesting end of stream: ${e}`);
+    });
+    req.end();
+    return req;
+  };
+
+  return { sendMore, sendEnd };
 }
 
-module.exports = {
-  pullStream: pullStream,
-  pushMore: pushMore
-};
+module.exports = { pullStream, pushStream };
