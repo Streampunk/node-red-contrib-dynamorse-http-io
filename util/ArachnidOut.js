@@ -15,7 +15,7 @@
 
 
 const { Grain, PTPMaths : { compareVersions, msOriginTs } } =
-  require('node-red-contrib-dynamorse-core').Grain;
+  require('node-red-contrib-dynamorse-core');
 const uuid = require('uuid');
 const http = require('http');
 const https = require('https');

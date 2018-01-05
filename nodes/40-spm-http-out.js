@@ -13,8 +13,9 @@
   limitations under the License.
 */
 
-const { Redioactive, Grain, PTPMaths : {
-  compareVersions, msOriginTs } } = require('node-red-contrib-dynamorse-core');
+const { Redioactive, Grain, PTPMaths : { compareVersions } } =
+  require('node-red-contrib-dynamorse-core');
+const { pullStream } = require('../util/ArachnidOut.js');
 const util = require('util');
 const express = require('express');
 const http = require('http');
@@ -24,14 +25,7 @@ const uuid = require('uuid');
 const dns = require('dns');
 const url = require('url');
 
-const variation = 1; // Grain timing requests may vary +-1ms
 const nop = () => {};
-
-var statusError = (status, message) => {
-  var e = new Error(message);
-  e.status = status;
-  return e;
-};
 
 function reorderCache(c) {
   var co = {};
@@ -70,34 +64,34 @@ module.exports = function (RED) {
   function SpmHTTPOut (config) {
     RED.nodes.createNode(this, config);
     Redioactive.Spout.call(this, config);
-    var node = this;
-    var srcTags = null;
+    let node = this;
+    let wire = null;
     this.on('error', err => {
       node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`);
     });
-    var protocol = (config.protocol === 'HTTP') ? http : https;
-    var options = (config.protocol === 'HTTP') ? {} : {
+    let protocol = (config.protocol === 'HTTP') ? http : https;
+    let options = (config.protocol === 'HTTP') ? {} : {
       key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
       cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
     };
-    var grainCache = [];
-    var startCache = {};
+    let grainCache = [];
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
-    var contentType = 'application/octet-stream';
-    var packing = 'raw';
-    var app = null;
-    var server = null;
-    var begin = null;
-    var grainCount = 0;
-    var ended = false;
-    var activeThreads = 0;
-    var highWaterMark = { value : '0:0' };
+    let contentType = 'application/octet-stream';
+    let packing = 'raw';
+    let app = null;
+    let server = null;
+    let begin = null;
+    let grainCount = 0;
+    let ended = false;
+    let activeThreads = 0;
+    let highWaterMark = { value : '0:0' };
+    let clearDown = null;
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
-    var fullPath = `${config.pushURL}:${config.port}${config.path}`;
-    var fullURL = url.parse(fullPath);
-    var keepAliveAgent = new protocol.Agent({keepAlive : true });
-    var dnsPromise = (config.mode === 'pull') ? null : new Promise((resolve, reject) => {
+    let fullPath = `${config.pushURL}:${config.port}${config.path}`;
+    let fullURL = url.parse(fullPath);
+    let keepAliveAgent = new protocol.Agent({keepAlive : true });
+    let dnsPromise = (config.mode === 'pull') ? null : new Promise((resolve, reject) => {
       dns.lookup(fullURL.hostname, (err, addr/*, family*/) => {
         if (err) return reject(err);
         fullURL.hostname = addr;
@@ -106,48 +100,24 @@ module.exports = function (RED) {
       });
     });
 
-    function startChecks (startID) {
-      if (!startID) {
-        let hungry = Object.keys(startCache)
-          .map(startChecks)
-          .some(x => x === true);
-        return hungry;
-      }
-      let startResponses = startCache[startID].responses;
-      if (!startResponses.includes(undefined) &&
-          grainCache.length >= startResponses.length) {
-        let lastGrains = grainCache.slice(-startResponses.length);
-        for ( let i = 0 ; i < startResponses.length ; i++ ) {
-          startResponses[i].res.redirect(
-            Grain.prototype.formatTimestamp(lastGrains[i].grain.ptpOrigin));
-        }
-        delete startCache[startID];
-        return false;
-      } else {
-        if (grainCache.length < startResponses.length) {
-          if (grainCache.length > 0) {
-            grainCache.slice(-1)[0].nextFn();
-          }
-          return true;
-        } else {
-          return false;
-        }
-      }
-    }
+    let startChecks = () => {
+      node.warn('Start checks called before setup.');
+    };
 
     this.each((x, next) => {
       if (!Grain.isGrain(x)) {
         node.warn(`HTTP out received something that is not a grain: ${x}`);
         return next();
       }
-      // this.log(`RECD-NEXT ${x}`);
-      var nextJob = (srcTags) ?
+      // debugger;// this.log(`RECD-NEXT ${x}`);
+      var nextJob = (wire) ?
         Promise.resolve(x) :
         this.findCable(x).then(cable => {
           let isVideo = Array.isArray(cable[0].video) && cable[0].video.length > 0;
-          srcTags = isVideo ? cable[0].video[0].tags : cable[0].audio[0].tags;
+          wire = isVideo ? cable[0].video[0] : cable[0].audio[0];
+          let srcTags = wire.tags;
 
-          var encodingName = srcTags.encodingName;
+          let encodingName = srcTags.encodingName;
           if (srcTags.packing && srcTags.packing.toLowerCase() === 'v210') encodingName = 'x-v210';
           if (srcTags.format === 'video' &&
               (encodingName === 'raw' || encodingName === 'x-v210' || encodingName === 'h264' )) {
@@ -162,7 +132,43 @@ module.exports = function (RED) {
           packing = (srcTags.packing) ? srcTags.packing : 'raw';
           node.log(`content type ${contentType}`);
 
-          if (app) {
+          if (config.mode === 'pull') {
+            app = express();
+            let router = express.Router();
+            app.use(config.path, router);
+            let pullRoute =
+              pullStream(router, config, grainCache, wire, node, () => ended);
+            clearDown = pullRoute.clearDown;
+            startChecks = pullRoute.startChecks;
+
+            app.use((err, req, res, next) => { // Must have four args, even if next not called
+              node.warn(err);
+              if (err.status) {
+                if (err.status === 405) { res.setHeader('Allow', ''); } // Allow header mandatory for 405, empty allowed
+                res.status(err.status).json({
+                  code: err.status,
+                  error: (err.message) ? err.message : 'Internal server error. No message available.',
+                  debug: (err.stack) ? err.stack : 'No stack available.'
+                });
+              } else {
+                res.status(500).json({
+                  code: 500,
+                  error: (err.message) ? err.message : 'Internal server error. No message available.',
+                  debug: (err.stack) ? err.stack : 'No stack available.'
+                });
+              }
+              if (next === false) next(); // NOP to pass linting
+            });
+
+            app.use((req, res, next) => { // Assuming needs three args, even if next not called
+              res.status(404).json({
+                code : 404,
+                error : `Could not find the requested resource '${req.path}'.`,
+                debug : req.path
+              });
+              if (next === false) next(); // NOP to pass linting
+            });
+
             server = ((config.protocol === 'HTTP') ?
               protocol.createServer(app) : protocol.createServer(options, app))
               .listen(config.port, err => {
@@ -231,7 +237,7 @@ module.exports = function (RED) {
                   'Arachnid-Packing': packing,
                   'Arachnid-GrainDuration': g.duration ?
                     Grain.prototype.formatDuration(g.duration) :
-                    `${srcTags.grainDuration[0]}/${srcTags.grainDuration[1]}`
+                    `${wire.tags.grainDuration[0]}/${wire.tags.grainDuration[1]}`
                 }
               };
               if (g.timecode)
@@ -289,154 +295,6 @@ module.exports = function (RED) {
         this.error(`spm-http-out received error: ${err}`);
       });
     });
-    if (config.mode === 'pull') {
-      app = express();
-
-      app.get(config.path, (req, res) => {
-        res.json({
-          maxCacheSize : config.cacheSize,
-          currentCacheSize : grainCache.length,
-          flow_id : (grainCache.length > 0) ? uuid.unparse(grainCache[0].grain.flow_id) : '',
-          source_id : (grainCache.length > 0) ? uuid.unparse(grainCache[0].grain.source_id) : '',
-          cacheTS : grainCache.map(g => {
-            return Grain.prototype.formatTimestamp(g.grain.ptpOrigin);
-          }),
-          starters : Object.keys(startCache)
-        });
-      });
-      app.get(config.path + '/start/:sid/:conc/:t', (req, res, next) => {
-        // console.log('*** RECEIVED START', req.params);
-        let startID = req.params.sid;
-        let conc = (req.params.conc) ? +req.params.conc : NaN;
-        if (isNaN(conc) || conc <= 0 || conc > 6) {
-          return next(statusError(400, `Number of concurrent threads must be a number between 1 and 6. Recieved ${req.paraks.conc}.`));
-        }
-        let t = (req.params.t) ? +req.params.t : NaN;
-        if (isNaN(t) || t <= 0 || t > conc) {
-          return next(statusError(400, `Timestamp must be a number between 1 and ${conc}. Received ${req.params.t}.`));
-        }
-        if (!startCache[startID]) {
-          startCache[startID] = {
-            created : Date.now(),
-            responses : new Array(conc)
-          };
-        }
-        if (Date.now() - startCache[startID].created > 5000) { // allow for backpressure restart
-          startCache[startID].responses.forEach(r => {
-            r.next(statusError(408, `For start ID ${startID}, thread ${r.t} of ${r.conc}, redirection is not available.`));
-          });
-          startCache[startID] = {
-            created : Date.now(),
-            responses : new Array(conc)
-          };
-        }
-        let startResponses = startCache[startID].responses;
-        if (startResponses[t - 1]) {
-          let res = startResponses[t - 1];
-          res.next(statusError(409, `For start ID ${startID}, thread ${res.t} of ${res.conc}, duplicate request for redirection.`));
-          node.warn(`Duplicate request for start ID ${startID}, thread ${res.t} of ${res.conc}, duplicate request for redirection.`);
-        }
-        startResponses[t - 1] = {
-          res: res,
-          next: next,
-          t: t,
-          conc: conc
-        };
-
-        return startChecks(startID);
-      });
-      app.get(config.path + '/:ts', (req, res, next) => {
-        // this.log(`Received request for ${req.params.ts}.`);
-        var nextGrain = grainCache[grainCache.length - 1].nextFn;
-        var g = null;
-        var tsMatch = req.params.ts.match(/([0-9]+):([0-9]{9})/);
-        if (tsMatch) {
-          var secs = +tsMatch[1]|0;
-          var nanos = +tsMatch[2]|0;
-          var rangeCheck = (secs * 1000) + (nanos / 1000000|0);
-          // console.log('<-> Range checking, across the universe', rangeCheck,
-          //   msOriginTs(grainCache[0].grain),
-          //   msOriginTs(grainCache[grainCache.length - 1].grain));
-          g = grainCache.find(y => {
-
-            var grCheck = msOriginTs(y.grain);
-            return (rangeCheck >= grCheck - variation) &&
-              (rangeCheck <= grCheck + variation);
-          });
-          // this.log(`Selected grain ${Grain.prototype.formatTimestamp(g.grain.ptpOrigin)}`);
-          if (g) {
-            nextGrain = g.nextFn;
-            g = g.grain;
-          } else {
-            if (rangeCheck < msOriginTs(grainCache[0].grain)) {
-              return next(statusError(410, 'Request for a grain with a timestamp that lies before the available window.'));
-            } else {
-              // nextGrain();
-              // console.log('!!! Responding not found.');
-              // this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
-              if (ended) {
-                return next(statusError(405, 'Stream has ended.'));
-              } else {
-                return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
-              }
-            }
-          }
-        } else {
-          return(next(statusError(400, `Could not match timestamp ${req.params.ts} provided on path.`)));
-        }
-
-        // this.log('Got to b4 setting headers.');
-        res.setHeader('Arachnid-PTPOrigin', Grain.prototype.formatTimestamp(g.ptpOrigin));
-        res.setHeader('Arachnid-PTPSync', Grain.prototype.formatTimestamp(g.ptpSync));
-        res.setHeader('Arachnid-FlowID', uuid.unparse(g.flow_id));
-        res.setHeader('Arachnid-SourceID', uuid.unparse(g.source_id));
-        res.setHeader('Arachnid-Packing', packing);
-        if (g.timecode)
-          res.setHeader('Arachnid-Timecode',
-            Grain.prototype.formatTimecode(g.timecode));
-        if (g.duration) {
-          res.setHeader('Arachnid-GrainDuration',
-            Grain.prototype.formatDuration(g.duration));
-        } else {
-          node.error('Arachnid requires a grain duration to function (for now).');
-        }
-        res.setHeader('Content-Type', contentType);
-        var data = g.buffers[0];
-        res.setHeader('Content-Length', data.length);
-        if (req.method === 'HEAD') return res.end();
-
-        res.send(data);
-        if (ended === false) nextGrain();
-      });
-
-      app.use((err, req, res, next) => { // Must have four args, even if next not called
-        node.warn(err);
-        if (err.status) {
-          if (err.status === 405) { res.setHeader('Allow', ''); } // Allow header mandatory for 405, empty allowed
-          res.status(err.status).json({
-            code: err.status,
-            error: (err.message) ? err.message : 'Internal server error. No message available.',
-            debug: (err.stack) ? err.stack : 'No stack available.'
-          });
-        } else {
-          res.status(500).json({
-            code: 500,
-            error: (err.message) ? err.message : 'Internal server error. No message available.',
-            debug: (err.stack) ? err.stack : 'No stack available.'
-          });
-        }
-        if (next === false) next(); // NOP to pass linting
-      });
-
-      app.use((req, res, next) => { // Assuming needs three args, even if next not called
-        res.status(404).json({
-          code : 404,
-          error : `Could not find the requested resource '${req.path}'.`,
-          debug : req.path
-        });
-        if (next === false) next(); // NOP to pass linting
-      });
-    } // End pull
 
     function sendEnd (hwm) {
       var req = protocol.request({
@@ -458,30 +316,10 @@ module.exports = function (RED) {
       return req;
     }
 
-    this.clearDown = null;
-    if (this.clearDown === null) {
-      this.clearDown = setInterval(() => {
-        var toDelete = [];
-        var now = Date.now();
-        Object.keys(startCache).forEach(k => {
-          if (now - startCache[k].created > 5000)
-            toDelete.push(k);
-        });
-        toDelete.forEach(k => {
-          let responses = startCache[k].responses;
-          node.warn(`Deleting start ID ${k} from start cache with entries ${responses.map(x => x && x.t)}.`);
-          responses.forEach(r => {
-            r.next(statusError(408, `Clearing start cache for start ID ${k}, thread ${r.t} of ${r.conc}, after 5 seconds.`));
-          });
-          delete startCache[k];
-        });
-      }, 1000);
-    }
-
     this.done(() => {
       node.log('Closing the app and/or ending the stream!');
-      clearInterval(this.clearDown);
-      this.clearDown = null;
+      clearInterval(clearDown);
+      clearDown = null;
       ended = true;
       if (config.mode === 'push') {
         dnsPromise = dnsPromise.then(() => sendEnd(highWaterMark.value));
