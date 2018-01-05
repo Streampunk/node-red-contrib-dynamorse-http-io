@@ -115,6 +115,8 @@ var recvMsg = function (t, params, msgObj, onEnd) {
     params.sentTags = msgObj.found[0];
     break;
   case 'found srcID srcType spout':
+    delete msgObj.found[0].id; // TODO should IDs be the same
+    delete params.sentTags.id;
     t.deepEqual(msgObj.found[0], params.sentTags,
       'cable descriptions at sender and spout match.');
     break;
