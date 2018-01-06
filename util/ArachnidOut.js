@@ -1,4 +1,4 @@
-/* Copyright 2017 Streampunk Media Ltd.
+/* Copyright 2018 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ const uuid = require('uuid');
 const http = require('http');
 const https = require('https');
 const url = require('url');
+const lookup = require('util').promisify(require('dns').lookup);
 
 const variation = 1; // Grain timing requests may vary +-1ms
 
@@ -218,7 +219,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
       let responses = startCache[k].responses;
       logger.warn(`Deleting start ID ${k} from start cache for ${wire.name} with entries ${responses.map(x => x && x.t)}.`);
       responses.forEach(r => {
-        r.next(statusError(408, `Clearing start cache if ${wire.name} for start ID ${k}, thread ${r.t} of ${r.conc}, after 5 seconds.`));
+        r.next(statusError(408, `Clearing start cache of ${wire.name} for start ID ${k}, thread ${r.t} of ${r.conc}, after 5 seconds.`));
       });
       delete startCache[k];
     });
@@ -236,6 +237,8 @@ function pushStream (config, wire, logger, highWaterMark) {
   let activeThreads = 0;
 
   let { packing, contentType, grainDuration } = makeHeaders(wire);
+  let dnsPromise = lookup(fullURL.hostname)
+    .then(({address}) => { fullURL.hostname = address; });
 
   function reorderCache(c) {
     let co = {};
@@ -367,7 +370,7 @@ function pushStream (config, wire, logger, highWaterMark) {
     return req;
   };
 
-  return { sendMore, sendEnd };
+  return { sendMore, sendEnd, dnsPromise };
 }
 
 module.exports = { pullStream, pushStream };

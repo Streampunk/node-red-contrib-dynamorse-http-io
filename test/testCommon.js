@@ -1,4 +1,4 @@
-/* Copyright 2017 Streampunk Media Ltd.
+/* Copyright 2018 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ const httpOutNode = () => ({
   fragments: 1,
   timeout: 0,
   backpressure: true,
+  logTime: true,
   x: 300,
   y: 100,
   wires: []

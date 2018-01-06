@@ -1,4 +1,4 @@
-/* Copyright 2017 Streampunk Media Ltd.
+/* Copyright 2018 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -21,8 +21,6 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const dns = require('dns');
-const url = require('url');
 
 const nop = () => {};
 
@@ -65,17 +63,9 @@ module.exports = function (RED) {
     let clearDown = null;
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
-    let fullURL = url.parse(`${config.pushURL}:${config.port}${config.path}`);
     let sendMore = null;
     let sendEnd = null;
-    let dnsPromise = (config.mode === 'pull') ? null : new Promise((resolve, reject) => {
-      dns.lookup(fullURL.hostname, (err, addr/*, family*/) => {
-        if (err) return reject(err);
-        fullURL.hostname = addr;
-        node.wsMsg.send({'resolved': { addr: addr }});
-        resolve(addr);
-      });
-    });
+    let dnsPromise = null;
 
     let startChecks = () => {
       if (config.mode !== 'push') {
@@ -141,7 +131,7 @@ module.exports = function (RED) {
             server.on('error', node.warn);
           }
           if (config.mode === 'push') {
-            ({ sendMore, sendEnd } = pushStream(config, wire, node, highWaterMark));
+            ({ sendMore, sendEnd, dnsPromise } = pushStream(config, wire, node, highWaterMark));
           }
           begin = process.hrtime();
         });

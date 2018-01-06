@@ -1,4 +1,4 @@
-/* Copyright 2017 Streampunk Media Ltd.
+/* Copyright 2018 Streampunk Media Ltd.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -13,20 +13,15 @@
   limitations under the License.
 */
 
-const { Redioactive, Grain, PTPMaths : { compareVersions, versionDiffMs } } =
+const { Redioactive, Grain, PTPMaths : { compareVersions } } =
   require('node-red-contrib-dynamorse-core');
+const { pullStream } = require('../util/ArachnidIn.js');
 const util = require('util');
 const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const dns = require('dns');
-const url = require('url');
 
-// Maximum drift between high water mark and next request in ms
-// TODO calculate this from grain rate
-var maxDrift = 40 * 8;
-const nineZeros = '000000000';
 const minBufferSize = 10000;
 
 var statusError = (status, message) => {
@@ -34,15 +29,6 @@ var statusError = (status, message) => {
   e.status = status;
   return e;
 };
-
-function startThreads (n) {
-  let threads = [];
-  let startID = 'sid' + Date.now();
-  for ( let x = 1 ; x <= n ; x++ ) {
-    threads.push(`start/${startID}/${n}/${x}`);
-  }
-  return threads;
-}
 
 const mimeMatch = /^\s*(\w+)\/([\w-]+)/;
 const paramMatch = /\b(\w+)=(\S+)\b/g;
@@ -52,26 +38,25 @@ module.exports = function (RED) {
     RED.nodes.createNode(this, config);
     Redioactive.Funnel.call(this, config);
 
-    var protocol = (config.protocol === 'HTTP') ? http : https;
-    var node = this;
+    let protocol = (config.protocol === 'HTTP') ? http : https;
+    let node = this;
     config.pullURL = (config.pullURL.endsWith('/')) ?
       config.pullURL.slice(0, -1) : config.pullURL;
     config.path = (config.path.endsWith('/')) ?
       config.path.slice(0, -1) : config.path;
-    this.baseTime = [ Date.now() / 1000|0, (Date.now() % 1000) * 1000000 ];
-    var fullURL = url.parse(`${config.pullURL}:${config.port}${config.path}`);
-    var sourceID = null;
-    var flowID = null;
-    var flows = null;
-    var tags = {};
+    let baseTime = (d => [ d / 1000|0, (d % 1000) * 1000000 ])(Date.now());
+    let sourceID = null;
+    let flowID = null;
+    let tags = {};
     const totalConcurrent = +config.parallel;
-    var endState = { ended : false, endMark : null };
+    let endState = { ended : false, endMark : null };
+    let highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
 
     function makeFlowAndSource (headers) {
-      var contentType = headers['content-type'];
-      var mime = contentType.match(mimeMatch);
+      let contentType = headers['content-type'];
+      let mime = contentType.match(mimeMatch);
       tags = { format : mime[1], encodingName : mime[2] };
-      var parameters = contentType.match(paramMatch);
+      let parameters = contentType.match(paramMatch);
       parameters.forEach(p => {
         var splitP = p.split('=');
         if (splitP[0] === 'rate') splitP[0] = 'clockRate';
@@ -119,10 +104,10 @@ module.exports = function (RED) {
         cable[tags.format][0].sourceID = headers['arachnid-sourceid'];
       if (headers['arachnid-flowid'] && (config.regenerate === false))
         cable[tags.format][0].flowID = headers['arachnid-flowid'];
-      flows = node.makeCable(cable);
+      node.makeCable(cable);
       flowID = node.flowID();
       sourceID = node.sourceID();
-      return Promise.resolve({ flowID, sourceID }); // Used for push mode so generator runs in order
+      return { flowID, sourceID };
     }
 
     const buffers = [];
@@ -135,179 +120,6 @@ module.exports = function (RED) {
       buffers.push(threadBufs);
       bufferIdx.push(0);
     }
-
-    var keepAliveAgent = new protocol.Agent({keepAlive : true });
-    var endCount = 0;
-    var endTimeout = null;
-    var runNext = (x, push, next) => {
-      var requestTimer = process.hrtime();
-      // this.log(`Thread ${x}: Requesting ${fullURL.path}/${nextRequest[x]}`);
-      var req = protocol.request({
-        rejectUnauthorized: false,
-        hostname: fullURL.hostname,
-        port: fullURL.port,
-        path: `${fullURL.path}/${nextRequest[x]}`,
-        method: 'GET',
-        agent: keepAliveAgent
-      },
-      res => {
-        // console.log('Response received after', process.hrtime(requestTimer));
-        // var count = 0;
-        var position = 0;
-        var currentIdx = bufferIdx[x] % buffers[x].length;
-        var currentBuf = buffers[x][currentIdx];
-        // console.log('>>>', x, buffers[0].map(x => x.length));
-        if (res.statusCode === 302) {
-          var location = res.headers['location'];
-          node.log(`Being redirected to ${location}.`);
-          location = '/' + location;
-          var lm = location.match(/.*\/([0-9]+):([0-9]{9})$/);
-          if (lm && lm.length >= 3) {
-            nextRequest[x] = `${lm[1]}:${lm[2]}`;
-            return setImmediate(() => { runNext(x, push, next); });
-          } else {
-            node.warn(`Received redirect to unrecognisable location ${location.slice(1)}. Retrying.`);
-            setTimeout(() => {
-              runNext(x, push, next);
-            }, 5);
-            return;
-          }
-        }
-        if (res.statusCode === 404) {
-          node.warn(`Received not found in thread ${x}, request ${config.path}/${nextRequest[x]} - may be ahead of the game. Retrying.`);
-          setTimeout(() => {
-            runNext(x, push, next);
-          }, 5);
-          return;
-        }
-        if (res.statusCode === 410) {
-          node.warn(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
-          // push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
-          nextRequest = startThreads(totalConcurrent);
-          activeThreads[x] = false;
-          return next();
-        }
-        if (res.statusCode === 405) {
-          node.log(`Source stream has ended - thread ${x}.`);
-          endTimeout = (endTimeout) ? endTimeout :
-            setTimeout(() => {
-              node.log('Pushing Redioactive.end.');
-              push(null, Redioactive.end);
-            }, 200); // TODO smell!
-          activeThreads[x] = false;
-          endState.ended = true;
-          return;
-        }
-        if (res.statusCode === 200) {
-          let contentLength = +res.headers['content-length'];
-          if (currentBuf.length < contentLength) {
-            node.log(`Extending buffer ${currentIdx} for thread ${x} from ${currentBuf.length} bytes to ${contentLength} bytes.`);
-            currentBuf = Buffer.alloc(contentLength);
-            buffers[x][currentIdx] = currentBuf;
-          }
-          nextRequest[x] = res.headers['arachnid-ptporigin'];
-          if (!flows) { makeFlowAndSource(res.headers); }
-          res.on('data', data => {
-            position += data.copy(currentBuf, position);
-            // count++;
-            // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
-          });
-          res.on('end', () => {
-            let ptpOrigin = res.headers['arachnid-ptporigin'];
-            let ptpSync = res.headers['arachnid-ptpsync'];
-            let duration = res.headers['arachnid-grainduration'];
-            // TODO fix up regeneration
-            let gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-            let gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-            let tc = res.headers['arachnid-timecode'];
-            let g = new Grain([ currentBuf.slice(0, position) ], ptpSync,
-              ptpOrigin, tc, gFlowID, gSourceID, duration); // regenerate time as emitted
-
-            let durArray = g.getDuration();
-            let originArray = g.getOriginTimestamp();
-            originArray [1] = originArray[1] +
-              (totalConcurrent * durArray[0] * 1000000000 / durArray[1]|0);
-            if (originArray[1] >= 1000000000)
-              originArray[0] = originArray[0] + (originArray[1] / 1000000000|0);
-            let nanos = (originArray[1]%1000000000).toString();
-            nextRequest[x] = `${originArray[0]}:${nineZeros.slice(nanos.length)}${nanos}`;
-
-            pushGrains(g, push);
-            activeThreads[x] = false;
-            bufferIdx[x]++;
-            if (config.logTime) {
-              console.log(`Thread ${x}: Retrieved in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
-            }
-            next();
-          });
-        }
-        res.on('error', e => {
-          node.warn(`Received error during streaming of get response on thread ${x}: ${e}.`);
-          push(`Received error during streaming of get response on thread ${x}: ${e}.`);
-          activeThreads[x] = false;
-          next();
-        });
-      });
-      req.on('error', e => {
-        // Check for flow !== null is so that shutdown does not happen too early
-        if (flows !== null && e.message.indexOf('ECONNREFUSED') >= 0) {
-          node.log(`Received connection refused on thread ${x}. Assuming end.`);
-          activeThreads[x] = true; // Don't make another request.
-          endCount++;
-          if (endCount === activeThreads.length) {
-            push(null, Redioactive.end);
-          }
-          return;
-        }
-        node.warn(`Received error when requesting frame from server on thread ${x}: ${e}`);
-        push(`Received error when requesting frame from server on thread ${x}: ${e}`);
-        activeThreads[x] = false;
-        next();
-      });
-      req.end();
-      requestTimer = process.hrtime();
-    };
-
-    var grainQueue = { };
-    var highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
-    // Push every grain older than what is in nextRequest, send grains in order
-    var pushGrains = (g, push) => {
-      grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
-      // console.log('QQQ', nextRequest, 'hwm', highWaterMark);
-      var nextMin = nextRequest.reduce((a, b) =>
-        compareVersions(a, b) <= 0 ? a : b);
-      // console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
-
-      Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
-        .sort(compareVersions)
-        .forEach(gts => {
-          if (!config.regenerate) {
-            // console.log('>>> PUSHING', config.regenerate);
-            push(null, grainQueue[gts]);
-          } else {
-            var g = grainQueue[gts];
-            var grainTime = Buffer.allocUnsafe(10);
-            grainTime.writeUIntBE(this.baseTime[0], 0, 6);
-            grainTime.writeUInt32BE(this.baseTime[1], 6);
-            var grainDuration = g.getDuration();
-            this.baseTime[1] = ( this.baseTime[1] +
-              grainDuration[0] * 1000000000 / grainDuration[1]|0 );
-            this.baseTime = [ this.baseTime[0] + this.baseTime[1] / 1000000000|0,
-              this.baseTime[1] % 1000000000];
-            push(null, new Grain(g.buffers, grainTime, g.ptpOrigin, g.timecode,
-              flowID, sourceID, g.duration));
-          }
-          delete grainQueue[gts];
-          highWaterMark = gts;
-        });
-      if (endState.ended && activeThreads.every(a => a === false)) {
-        push(null, Redioactive.end);
-      }
-    };
-
-    var activeThreads =
-      [ false, false, false, false, false, false].slice(0, totalConcurrent);
-    var nextRequest = startThreads(totalConcurrent);
 
     if (config.mode === 'push') { // push mode
       this.receiveQueue = {};
@@ -339,7 +151,7 @@ module.exports = function (RED) {
           buf: buffers[idx[0], idx[1]]
         };
         if (started === false) {
-          resolver(makeFlowAndSource(req.headers));
+          resolver(Promise.resolve(makeFlowAndSource(req.headers)));
           started = true;
         } else {
           if (resolver) {
@@ -483,31 +295,9 @@ module.exports = function (RED) {
       });
       server.on('error', node.warn);
     } else { // config.mode is set to pull
-      dns.lookup(fullURL.hostname, (err, addr/*, family*/) => {
-        if (err) return this.preFlightError(`Unable to resolve DNS for ${fullURL.hostname}: ${err}`);
-        node.log(`Resolved URL hostname ${fullURL.hostname} to ${addr}.`);
-        fullURL.hostname = addr;
-        this.generator((push, next) => {
-          if (endState.ended === false) {
-            setImmediate(() => { // Was a set timeout to allow grain cache to fill - now has logic
-              // console.log('+++ DEBUG THREADS', activeThreads);
-              for ( let i = 0 ; i < activeThreads.length ; i++ ) {
-                let drift = versionDiffMs(highWaterMark, nextRequest[i]);
-                if (!activeThreads[i]) {
-                  if (drift < maxDrift) {
-                    runNext.call(this, i, push, next);
-                    activeThreads[i] = true;
-                  } else {
-                    node.warn(`Not progressing thread ${i} this time due to a drift of ${drift}.`);
-                  }
-                }
-              }
-            }); //, (flows === null) ? 100 : 0);
-          } else {
-            this.log('Not responding to generator.');
-          }
-        });
-      });
+      let pullGenerator = pullStream(config, node, endState, baseTime,
+        highWaterMark, makeFlowAndSource);
+      pullGenerator(this.generator);
     }
 
     this.on('close', () => {
