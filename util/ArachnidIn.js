@@ -28,7 +28,7 @@ const minBufferSize = 10000;
 const maxDrift = 40 * 8;
 
 var statusError = (status, message) => {
-  var e = new Error(message);
+  let e = new Error(message);
   e.status = status;
   return e;
 };
@@ -81,7 +81,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
   let pushGrains = (g, push) => {
     grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
     // console.log('QQQ', nextRequest, 'hwm', highWaterMark);
-    var nextMin = nextRequest.reduce((a, b) =>
+    let nextMin = nextRequest.reduce((a, b) =>
       compareVersions(a, b) <= 0 ? a : b);
     // console.log('nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
 
@@ -92,11 +92,11 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
           // console.log('>>> PUSHING', config.regenerate);
           push(null, grainQueue[gts]);
         } else {
-          var g = grainQueue[gts];
-          var grainTime = Buffer.allocUnsafe(10);
+          let g = grainQueue[gts];
+          let grainTime = Buffer.allocUnsafe(10);
           grainTime.writeUIntBE(baseTime[0], 0, 6);
           grainTime.writeUInt32BE(baseTime[1], 6);
-          var grainDuration = g.getDuration();
+          let grainDuration = g.getDuration();
           baseTime[1] = ( baseTime[1] +
             grainDuration[0] * 1000000000 / grainDuration[1]|0 );
           baseTime = [ baseTime[0] + baseTime[1] / 1000000000|0,
@@ -124,7 +124,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       agent: keepAliveAgent
     }, res => {
       // console.log('Response received after', process.hrtime(requestTimer));
-      // var count = 0;
+      // let count = 0;
       let position = 0;
       let currentIdx = bufferIdx[x] % buffers[x].length;
       let currentBuf = buffers[x][currentIdx];
@@ -273,18 +273,18 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
 function pushStream (router, config, endState, logger,
   generator, wireOrMakeWire, serverClose) {
 
-  var receiveQueue = {};
-  var lowWaterMark = null;
+  let receiveQueue = {};
+  let lowWaterMark = null;
   endState.endMark = null;
-  var resolver = null;
-  var flowPromise = new Promise(f => { resolver = f; });
-  var started = false;
-  var bufferLoop = 0;
-  var count = 0;
-  var totalConcurrent = +config.parallel;
+  let resolver = null;
+  let flowPromise = new Promise(f => { resolver = f; });
+  let started = false;
+  let bufferLoop = 0;
+  let count = 0;
+  let totalConcurrent = +config.parallel;
   const wireIsFn = typeof wireOrMakeWire === 'function';
-  var flowID = (wireIsFn) ? null : wireOrMakeWire.flowID;
-  var sourceID = (wireIsFn) ? null : wireOrMakeWire.sourceID;
+  let flowID = (wireIsFn) ? null : wireOrMakeWire.flowID;
+  let sourceID = (wireIsFn) ? null : wireOrMakeWire.sourceID;
 
   const { buffers } = makeInitialBuffers(totalConcurrent, config.maxBuffer);
 
@@ -342,9 +342,9 @@ function pushStream (router, config, endState, logger,
   generator((push, next) => {
     count++;
     flowPromise = flowPromise.then(() => {
-      var sortedKeys = Object.keys(receiveQueue)
+      let sortedKeys = Object.keys(receiveQueue)
         .sort(compareVersions);
-      var numberToSend = (endState.ended) ? 1 :
+      let numberToSend = (endState.ended) ? 1 :
         sortedKeys.length - totalConcurrent + 1;
       if (endState.ended && sortedKeys.length === 0) {
         push(null, redEnd);
@@ -355,10 +355,10 @@ function pushStream (router, config, endState, logger,
       logger.log(`numberToSend: ${numberToSend} with parallel: ${totalConcurrent}.`);
       sortedKeys.slice(0, (numberToSend >= 0) ? numberToSend : 0)
         .forEach(gts => {
-          var req = receiveQueue[gts].req;
-          var res = receiveQueue[gts].res;
-          var buf = receiveQueue[gts].buf;
-          var idx = receiveQueue[gts].idx;
+          let req = receiveQueue[gts].req;
+          let res = receiveQueue[gts].res;
+          let buf = receiveQueue[gts].buf;
+          let idx = receiveQueue[gts].idx;
           delete receiveQueue[gts];
           if (lowWaterMark && compareVersions(req.params.ts, lowWaterMark) < 0) {
             next();
@@ -369,7 +369,7 @@ function pushStream (router, config, endState, logger,
               debug: 'No stack available.'
             });
           }
-          var position = 0;
+          let position = 0;
           let contentLength = +req.headers['content-length'];
           if (!isNaN(contentLength) && buf.length < contentLength) {
             logger.log(`Extending buffer ${idx} from ${buf.length} bytes to ${contentLength} bytes.`);

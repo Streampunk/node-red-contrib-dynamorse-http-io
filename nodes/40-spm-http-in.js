@@ -13,22 +13,13 @@
   limitations under the License.
 */
 
-const { Redioactive, Grain, PTPMaths : { compareVersions } } =
-  require('node-red-contrib-dynamorse-core');
-const { pullStream } = require('../util/ArachnidIn.js');
+const { Redioactive } = require('node-red-contrib-dynamorse-core');
+const { pullStream, pushStream } = require('../util/ArachnidIn.js');
 const util = require('util');
 const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-
-const minBufferSize = 10000;
-
-var statusError = (status, message) => {
-  var e = new Error(message);
-  e.status = status;
-  return e;
-};
 
 const mimeMatch = /^\s*(\w+)\/([\w-]+)/;
 const paramMatch = /\b(\w+)=(\S+)\b/g;
@@ -45,17 +36,14 @@ module.exports = function (RED) {
     config.path = (config.path.endsWith('/')) ?
       config.path.slice(0, -1) : config.path;
     let baseTime = (d => [ d / 1000|0, (d % 1000) * 1000000 ])(Date.now());
-    let sourceID = null;
-    let flowID = null;
-    let tags = {};
-    const totalConcurrent = +config.parallel;
     let endState = { ended : false, endMark : null };
     let highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
+    let server = null; // Allow this.close to close down running servers
 
     function makeFlowAndSource (headers) {
       let contentType = headers['content-type'];
       let mime = contentType.match(mimeMatch);
-      tags = { format : mime[1], encodingName : mime[2] };
+      let tags = { format : mime[1], encodingName : mime[2] };
       let parameters = contentType.match(paramMatch);
       parameters.forEach(p => {
         var splitP = p.split('=');
@@ -105,153 +93,13 @@ module.exports = function (RED) {
       if (headers['arachnid-flowid'] && (config.regenerate === false))
         cable[tags.format][0].flowID = headers['arachnid-flowid'];
       node.makeCable(cable);
-      flowID = node.flowID();
-      sourceID = node.sourceID();
-      return { flowID, sourceID };
-    }
-
-    const buffers = [];
-    const bufferIdx = [];
-    for ( let x = 0 ; x < totalConcurrent ; x++) {
-      let threadBufs = [];
-      for ( let y = 0 ; y < config.maxBuffer ; y++ ) {
-        threadBufs.push(Buffer.alloc(minBufferSize));
-      }
-      buffers.push(threadBufs);
-      bufferIdx.push(0);
+      return { flowID: node.flowID(), sourceID: node.sourceID() };
     }
 
     if (config.mode === 'push') { // push mode
-      this.receiveQueue = {};
-      this.lowWaterMark = null;
-      endState.endMark = null;
-      var resolver = null;
-      var flowPromise = new Promise(f => { resolver = f; });
-      var started = false;
-      var app = express();
-      var bufferLoop = 0;
-      var count = 0;
-
-      app.put(config.path + '/:ts', (req, res, next) => {
-        this.log(`Received request ${req.path}.`);
-        if (Object.keys(this.receiveQueue).length >= config.cacheSize) {
-          return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
-        }
-        if (Object.keys(this.receiveQueue).indexOf(req.params.ts) >=0) {
-          return next(statusError(409, `Receive queue already contains timestamp ${req.params.ts}.`));
-        }
-        if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
-          return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`));
-        }
-        let idx = [bufferLoop / buffers.length|0, bufferLoop++ % buffers.length];
-        this.receiveQueue[req.params.ts] = {
-          req: req,
-          res: res,
-          idx: idx,
-          buf: buffers[idx[0], idx[1]]
-        };
-        if (started === false) {
-          resolver(Promise.resolve(makeFlowAndSource(req.headers)));
-          started = true;
-        } else {
-          if (resolver) {
-            resolver();
-          } else {
-            node.warn('No resolver to call.');
-          }
-        }
-        resolver = null;
-      });
-
-      app.put(config.path + '/:hwm/end', (req, res) => {
-        node.warn(`End received with remote high water mark ${req.params.hwm} and current low water mark ${this.lowWaterMark}.`);
-        endState.ended = true;
-        endState.endMark = req.params.hwm;
-        node.wsMsg.send({'end_received': { hwm: endState.endMark }});
-        if (resolver) resolver();
-        resolver = null;
-        res.json({
-          message: 'end_received',
-          timestamp: req.params.hwm
-        });
-      });
-
-      this.generator((push, next) => {
-        count++;
-        flowPromise = flowPromise.then(() => {
-          var sortedKeys = Object.keys(this.receiveQueue)
-            .sort(compareVersions);
-          var numberToSend = (endState.ended) ? 1 :
-            sortedKeys.length - totalConcurrent + 1;
-          if (endState.ended && sortedKeys.length === 0) {
-            push(null, Redioactive.end);
-            return server.close(() => {
-              node.warn('Closed server.');
-            });
-          }
-          node.log(`numberToSend: ${numberToSend} with parallel: ${totalConcurrent}.`);
-          sortedKeys.slice(0, (numberToSend >= 0) ? numberToSend : 0)
-            .forEach(gts => {
-              var req = this.receiveQueue[gts].req;
-              var res = this.receiveQueue[gts].res;
-              var buf = this.receiveQueue[gts].buf;
-              var idx = this.receiveQueue[gts].idx;
-              delete this.receiveQueue[gts];
-              if (this.lowWaterMark && compareVersions(req.params.ts, this.lowWaterMark) < 0) {
-                next();
-                node.warn(`Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`);
-                return res.status(400).json({
-                  code: 400,
-                  error: `Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${this.lowWaterMark}.`,
-                  debug: 'No stack available.'
-                });
-              }
-              var position = 0;
-              let contentLength = +req.headers['content-length'];
-              if (!isNaN(contentLength) && buf.length < contentLength) {
-                node.log(`Extending buffer ${idx} from ${buf.length} bytes to ${contentLength} bytes.`);
-                buf = Buffer.alloc(contentLength);
-                buffers[idx[0], idx[1]] = buf;
-              }
-              req.on('data', data => {
-                position += data.copy(buf, position);
-              });
-              res.on('error', node.warn);
-              req.on('end', () => {
-                let ptpOrigin = req.headers['arachnid-ptporigin'];
-                let ptpSync = req.headers['arachnid-ptpsync'];
-                let duration = req.headers['arachnid-grainduration'];
-                // TODO fix up regeneration
-                let gFlowID = flowID; //(config.regenerate) ? flowID : res.headers['arachnid-flowid'];
-                let gSourceID = sourceID; // (config.regenerate) ? sourceID : res.headers['arachnid-sourceid'];
-                let tc = req.headers['arachnid-timecode'];
-                let g = new Grain([ buf.slice(0, position) ], ptpSync, ptpOrigin,
-                  tc, gFlowID, gSourceID, duration); // regenerate time as emitted
-                push(null, g);
-                this.lowWaterMark = gts;
-
-                if (endState.ended) {
-                  if (resolver) resolver();
-                  resolver = null;
-                }
-
-                res.json({
-                  message: 'grain_recieved',
-                  timestamp: req.headers['arachnid-ptporigin'],
-                  bodyLength : position,
-                  receiveQueueLength : Object.keys(this.receiveQueue).length
-                });
-                next();
-              });
-            });
-          if (count < totalConcurrent) next();
-          if (resolver === null) {
-            return new Promise(f => { resolver = f; });
-          } else {
-            return resolver(new Promise(f => { resolver = f; }));
-          }
-        }); // .then(() => { console.log('>>>', JSON.stringify(resolver)); });
-      });
+      let app = express();
+      let router = express.Router();
+      app.use(config.path, router);
 
       app.use((err, req, res, next) => { // Have to pass in next for express to work
         node.warn(err);
@@ -281,11 +129,11 @@ module.exports = function (RED) {
         if (next == false) next();
       });
 
-      var options = (config.protocol === 'HTTP') ? {} : {
+      let options = (config.protocol === 'HTTP') ? {} : {
         key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
         cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
       };
-      var server = ((config.protocol === 'HTTP') ?
+      server = ((config.protocol === 'HTTP') ?
         protocol.createServer(app) : protocol.createServer(options, app))
         .listen(config.port, err => {
           if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
@@ -294,6 +142,9 @@ module.exports = function (RED) {
         node.warn(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
       });
       server.on('error', node.warn);
+
+      pushStream(router, config, endState, node, node.generator,
+        makeFlowAndSource, server.close.bind(server));
     } else { // config.mode is set to pull
       let pullGenerator = pullStream(config, node, endState, baseTime,
         highWaterMark, makeFlowAndSource);

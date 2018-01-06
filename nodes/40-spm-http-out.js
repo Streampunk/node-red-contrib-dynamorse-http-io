@@ -15,28 +15,12 @@
 
 const { Redioactive, Grain } =
   require('node-red-contrib-dynamorse-core');
-const { pullStream, pushStream } = require('../util/ArachnidOut.js');
+const { pullStream, pushStream, nop, once } = require('../util/ArachnidOut.js');
 const util = require('util');
 const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-
-const nop = () => {};
-
-function once (fn, context) {
-  let result;
-  let cacheFn = fn;
-  let o = () => {
-    if (fn) {
-      result = fn.apply(context || this, arguments);
-      fn = null;
-    }
-    return result;
-  };
-  o.reset = () => { fn = cacheFn; };
-  return o;
-}
 
 module.exports = function (RED) {
   // let count = 0;

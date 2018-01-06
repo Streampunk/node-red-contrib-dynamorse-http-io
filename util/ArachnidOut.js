@@ -30,6 +30,22 @@ var statusError = (status, message) => {
   return e;
 };
 
+const nop = () => {};
+
+function once (fn, context) {
+  let result;
+  let cacheFn = fn;
+  let o = () => {
+    if (fn) {
+      result = fn.apply(context || this, arguments);
+      fn = null;
+    }
+    return result;
+  };
+  o.reset = () => { fn = cacheFn; };
+  return o;
+}
+
 function makeHeaders (wire) {
   let srcTags = wire.tags;
   let result = {};
@@ -373,4 +389,4 @@ function pushStream (config, wire, logger, highWaterMark) {
   return { sendMore, sendEnd, dnsPromise };
 }
 
-module.exports = { pullStream, pushStream };
+module.exports = { pullStream, pushStream, nop, once };
