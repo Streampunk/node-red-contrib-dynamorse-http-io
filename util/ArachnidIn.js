@@ -77,6 +77,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
   const wireIsFn = typeof wireOrMakeWire === 'function';
   let flowID = wireIsFn ? null : wireOrMakeWire.flowID;
   let sourceID = wireIsFn ? null : wireOrMakeWire.sourceID;
+  let basePath = wireIsFn ? fullURL.path : fullURL.path + '/' + flowID;
 
   let pushGrains = (g, push) => {
     grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
@@ -108,7 +109,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         highWaterMark = gts;
       });
     if (endState.ended && activeThreads.every(a => a === false)) {
-      push(null, redEnd);
+      push(null, redEnd); // TODO wait for all streams to end?
     }
   };
 
@@ -119,7 +120,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       rejectUnauthorized: false,
       hostname: fullURL.hostname,
       port: fullURL.port,
-      path: `${fullURL.path}/${nextRequest[x]}`,
+      path: `${basePath}/${nextRequest[x]}`,
       method: 'GET',
       agent: keepAliveAgent
     }, res => {
@@ -146,15 +147,15 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         }
       }
       if (res.statusCode === 404) {
-        logger.warn(`Received not found in thread ${x}, request ${config.path}/${nextRequest[x]} - may be ahead of the game. Retrying.`);
+        logger.warn(`Received not found in thread ${x}, request ${basePath}/${nextRequest[x]} - may be ahead of the game. Retrying.`);
         setTimeout(() => {
           runNext(x, push, next);
         }, 5);
         return;
       }
       if (res.statusCode === 410) {
-        logger.warn(`BANG! Cache miss when reading end ${config.path}/${nextRequest[x]} on thread ${x}.`);
-        // push(`Request for grain ${config.path}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
+        logger.warn(`BANG! Cache miss when reading end ${basePath}/${nextRequest[x]} on thread ${x}.`);
+        // push(`Request for grain ${basePath}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
         nextRequest = startThreads(totalConcurrent);
         activeThreads[x] = false;
         return next();
@@ -265,9 +266,14 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
 
   let dnsPromise = lookup(fullURL.hostname)
     .then(({address}) => { fullURL.hostname = address; });
-  return generator => { dnsPromise.then(() => {
-    generator(pullGenerator);
-  }); };
+  return generator => {
+    return dnsPromise.then(() => {
+      console.log('>>> HELLO!', pullGenerator);
+      generator(pullGenerator);
+      console.log('>>> BYE!', generator);
+      return pullGenerator;
+    });
+  };
 }
 
 function pushStream (router, config, endState, logger,

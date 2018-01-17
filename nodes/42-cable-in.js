@@ -13,18 +13,120 @@
   limitations under the License.
 */
 
-const redioactive = require('node-red-contrib-dynamorse-core').Redioactive;
+const { Redioactive } = require('node-red-contrib-dynamorse-core');
 const util = require('util');
+const http = require('http');
+const https = require('https');
+const lookup = require('util').promisify(require('dns').lookup);
+const url = require('url');
+const { pullStream } = require('../util/ArachnidIn.js');
+
+const nop = () => {};
 
 module.exports = function (RED) {
   function CableIn (config) {
     RED.nodes.createNode(this, config);
-    redioactive.Funnel.call(this, config);
+    Redioactive.Funnel.call(this, config);
 
-    var node = this;
-    node.warn(`Unimplemented CableIn node with config: ${JSON.stringify(config, null, 2)}`);
+    let protocol = (config.protocol === 'HTTP') ? http : https;
+    let node = this;
+    config.pullURL = (config.pullURL.endsWith('/')) ?
+      config.pullURL.slice(0, -1) : config.pullURL;
+    config.path = (config.path.endsWith('/')) ?
+      config.path.slice(0, -1) : config.path;
+    let baseTime = (d => [ d / 1000|0, (d % 1000) * 1000000 ])(Date.now());
+    // let endState = { ended : false, endMark : null };
+    let highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
+    let fullURL = url.parse(`${config.pullURL}:${config.port}${config.path}`);
+    let server = null;
 
+    if (config.mode === 'push') {
+      // TODO
+    } else { // not push module => pull mode
+      lookup(fullURL.hostname)
+        .then(({address}) => {
+          fullURL.hostname = address;
+          return new Promise((fulfil, reject) => {
+            let req = protocol.request({
+              rejectUnauthorized: false,
+              hostname: fullURL.hostname,
+              port: fullURL.port,
+              path: `${fullURL.path}/cable.json`,
+              method: 'GET'
+            }, res => {
+              console.log('>>> Received response of ', res.statusCode);
+              let cableBuilder = '';
+              res.on('error', reject);
+              if (res.statusCode !== 200) {
+                return reject(new Error(`Unecpected response of ${res.statusCode} to cable request ${fullURL}.`));
+              }
+              res.on('data', d => {
+                cableBuilder += d.toString('utf8');
+              });
+              res.on('end', () => {
+                let cable = JSON.parse(cableBuilder);
+                if (typeof cable !== 'object' || typeof cable.backPressure !== 'string') {
+                  return reject(new Error('Received a result that does not look like a cable.'));
+                }
+                console.log('>>>', cable);
+                fulfil(cable);
+              });
+            });
+            req.on('error', reject);
+            req.end();
+            console.log('>>> Making cable request.');
+          });
+        })
+        .then(firstCable => {
+          let generators = [];
+          delete firstCable.id;
+          console.log('>>> firstCable', firstCable);
+          node.makeCable(firstCable);
+          [ 'video', 'audio', 'anc', 'event' ].forEach(type => {
+            if (!firstCable[type]) return;
+            for ( let x = 0 ; x < firstCable[type].length ; x++ ) {
+              let wire = firstCable[type][x];
+              let streamEnded = { ended : false };
+              let pullGenerator = pullStream(config, node, streamEnded, baseTime,
+                highWaterMark, wire);
+              generators.push(pullGenerator(nop).then(streamGenerator => {
+                return { streamGenerator, streamEnded };
+              }));
+            }
+          });
+          return Promise.all(generators);
+        })
+        .then(generators => {
+          let endings = generators.map(({ streamEnded }) => streamEnded );
+          console.log('>>>', endings);
+          let multiPush = push => (err, x) => {
+            if (Redioactive.isEnd(x)) {
+              if (endings.every(y => y.ended)) {
+                push(null, Redioactive.end);
+              }
+            } else {
+              push(err, x);
+            }
+          };
+          node.generator((push, next) => {
+            generators.forEach(({streamGenerator: g}) => {
+              g(multiPush(push), next); });
+          });
+        })
+        .catch(e => {
+          node.warn(`cable-in promise rejection: ${e}`);
+        });
+    } // end this is pull mode
+
+    this.on('close', () => {
+      if (server) {
+        server.close(() => {
+          node.warn('Closed server on node close.');
+        });
+      }
+    });
   }
-  util.inherits(CableIn, redioactive.Funnel);
+
+  util.inherits(CableIn, Redioactive.Funnel);
   RED.nodes.registerType('cable-in', CableIn);
 };

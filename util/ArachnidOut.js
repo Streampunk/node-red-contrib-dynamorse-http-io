@@ -116,6 +116,10 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
     });
   });
 
+  router.get('/stream.json', (req, res) => {
+    return res.json(wire);
+  });
+
   router.get('/start/:sid/:conc/:t', (req, res, next) => {
     // console.log('*** RECEIVED START', req.params);
     let startID = req.params.sid;

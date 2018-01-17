@@ -73,10 +73,8 @@ module.exports = function (RED) {
             let app = express();
             let router = express.Router();
             app.use(config.path, router);
-            let pullRoute =
-              pullStream(router, config, () => grainCache, wire, node, () => ended);
-            clearDown = pullRoute.clearDown;
-            startChecks = pullRoute.startChecks;
+            ({ clearDown, startChecks } =
+              pullStream(router, config, () => grainCache, wire, node, () => ended));
 
             app.use((err, req, res, next) => { // Must have four args, even if next not called
               node.warn(err);
