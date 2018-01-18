@@ -69,7 +69,6 @@ module.exports = function (RED) {
           }
         }
       });
-      console.log('>>>', streams);
       return streams;
     }
 
@@ -83,10 +82,11 @@ module.exports = function (RED) {
         cablePromise = this.findCable(x).then(cable => {
           if (config.mode === 'pull') {
             let app = express();
-            streamDetails = setupSubs(cable, app);
+            let subs = express.Router();
+            app.use(config.path, subs);
+            streamDetails = setupSubs(cable, subs);
 
-
-            app.get([config.path, config.path + '/cable.json'], (req, res) => {
+            subs.get(['/', '/cable.json'], (req, res) => {
               res.json(cable[0]);
             });
 
@@ -164,7 +164,7 @@ module.exports = function (RED) {
 
       if (server) setTimeout(() => {
         if (streamDetails) {
-          for ( let [,s] in streamDetails) {
+          for ( let [,s] of streamDetails) {
             clearInterval(s.clearDown);
             s.clearDown = null;
             s.ended = true;

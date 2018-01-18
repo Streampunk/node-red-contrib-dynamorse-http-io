@@ -46,7 +46,15 @@ module.exports = function (RED) {
       lookup(fullURL.hostname)
         .then(({address}) => {
           fullURL.hostname = address;
-          return new Promise((fulfil, reject) => {
+          let getCableRequest = n => new Promise((fulfil, reject) => {
+            let errorFn = e => {
+              if (n <= 10) {
+                node.warn(`Attempt ${n} to request cable failed. Retrying in ${n *n * 100} ms. ${e}`);
+                return setTimeout(() => fulfil(getCableRequest(n+1)), n * n * 100);
+              } else {
+                reject(e);
+              }
+            };
             let req = protocol.request({
               rejectUnauthorized: false,
               hostname: fullURL.hostname,
@@ -56,7 +64,7 @@ module.exports = function (RED) {
             }, res => {
               console.log('>>> Received response of ', res.statusCode);
               let cableBuilder = '';
-              res.on('error', reject);
+              res.on('error', errorFn);
               if (res.statusCode !== 200) {
                 return reject(new Error(`Unecpected response of ${res.statusCode} to cable request ${fullURL}.`));
               }
@@ -72,10 +80,11 @@ module.exports = function (RED) {
                 fulfil(cable);
               });
             });
-            req.on('error', reject);
+            req.on('error', errorFn);
             req.end();
             console.log('>>> Making cable request.');
           });
+          return getCableRequest(1);
         })
         .then(firstCable => {
           let generators = [];

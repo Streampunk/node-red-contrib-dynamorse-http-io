@@ -134,26 +134,30 @@ var recvMsg = function (t, params, msgObj, onEnd) {
     .replace(/src /, msgObj.src);
   // t.comment(`Message: '${msgType}'`);
   switch (msgType) {
-  // case 'push funnel':
-  //   params.seqTest.push(msgObj.push);
-  //   break;
-  // case 'receive spout':
-  //   TestUtil.checkGrain(t, msgObj.receive);
-  //   t.deepEqual(msgObj.receive, params.seqTest[params.spoutCount++],
-  //     `funnel and spout objects for index ${params.spoutCount} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
-  //   break;
-  // case 'found srcID srcType HTTP sender':
-  //   // t.comment(`*** FOUND sender *** ${JSON.stringify(msgObj.found)}.`);
-  //   params.sentTags = msgObj.found[0];
-  //   break;
-  // case 'found srcID srcType spout':
-  //   delete msgObj.found[0].id; // TODO should IDs be the same
-  //   delete params.sentTags.id;
-  //   t.deepEqual(msgObj.found[0], params.sentTags,
-  //     'cable descriptions at sender and spout match.');
-  //   break;
+  case 'push splicer':
+    if (!params.seqTest[msgObj.push.flow_id])
+      params.seqTest[msgObj.push.flow_id] = [];
+    params.seqTest[msgObj.push.flow_id].push(msgObj.push);
+    break;
+  case 'receive spout':
+    TestUtil.checkGrain(t, msgObj.receive);
+    console.log(msgObj.receive.flow_id, params.seqTest);
+    t.deepEqual(msgObj.receive,
+      params.seqTest[msgObj.receive.flow_id][params.spoutCount++ / 2|0],
+      `funnel and spout objects for index ${params.spoutCount} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
+    break;
+  case 'found srcID srcType cable sender':
+    // t.comment(`*** FOUND sender *** ${JSON.stringify(msgObj.found)}.`);
+    params.sentTags = msgObj.found[0];
+    break;
+  case 'found srcID srcType spout':
+    delete msgObj.found[0].id; // TODO should IDs be the same
+    delete params.sentTags.id;
+    t.deepEqual(msgObj.found[0], params.sentTags,
+      'cable descriptions at sender and spout match.');
+    break;
   case 'end spout':
-    t.equal(params.spoutCount, params.numPushes,
+    t.equal(params.spoutCount, params.numPushes * 2,
       `number of receives at spout is ${params.spoutCount}.`);
     return setTimeout(onEnd, 1000);
   default:
