@@ -62,7 +62,6 @@ module.exports = function (RED) {
               path: `${fullURL.path}/cable.json`,
               method: 'GET'
             }, res => {
-              console.log('>>> Received response of ', res.statusCode);
               let cableBuilder = '';
               res.on('error', errorFn);
               if (res.statusCode !== 200) {
@@ -76,20 +75,17 @@ module.exports = function (RED) {
                 if (typeof cable !== 'object' || typeof cable.backPressure !== 'string') {
                   return reject(new Error('Received a result that does not look like a cable.'));
                 }
-                console.log('>>>', cable);
                 fulfil(cable);
               });
             });
             req.on('error', errorFn);
             req.end();
-            console.log('>>> Making cable request.');
           });
           return getCableRequest(1);
         })
         .then(firstCable => {
           let generators = [];
           delete firstCable.id;
-          console.log('>>> firstCable', firstCable);
           node.makeCable(firstCable);
           [ 'video', 'audio', 'anc', 'event' ].forEach(type => {
             if (!firstCable[type]) return;
@@ -107,8 +103,8 @@ module.exports = function (RED) {
         })
         .then(generators => {
           let endings = generators.map(({ streamEnded }) => streamEnded );
-          console.log('>>>', endings);
           let multiPush = push => (err, x) => {
+            // console.log('>>>', endings);
             if (Redioactive.isEnd(x)) {
               if (endings.every(y => y.ended)) {
                 push(null, Redioactive.end);

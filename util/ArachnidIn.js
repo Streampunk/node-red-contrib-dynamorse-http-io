@@ -125,6 +125,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       agent: keepAliveAgent
     }, res => {
       // console.log('Response received after', process.hrtime(requestTimer));
+      // console.log('>>> Received response with status', res.statusCode, 'for', req.path);
       // let count = 0;
       let position = 0;
       let currentIdx = bufferIdx[x] % buffers[x].length;
@@ -240,6 +241,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       next();
     });
     req.end();
+    // console.log('>>> Making request', req.path);
     requestTimer = process.hrtime();
   }; // runNext funciton
 
@@ -268,9 +270,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
     .then(({address}) => { fullURL.hostname = address; });
   return generator => {
     return dnsPromise.then(() => {
-      console.log('>>> HELLO!', pullGenerator);
       generator(pullGenerator);
-      console.log('>>> BYE!', generator);
       return pullGenerator;
     });
   };

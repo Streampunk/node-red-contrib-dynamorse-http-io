@@ -192,7 +192,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
           // console.log('!!! Responding not found.');
           // this.log(Grain.prototype.formatTimestamp(grainCache[0].grain.ptpOrigin));
           if (endFn()) {
-            return next(statusError(405, 'Stream has ended.'));
+            return next(statusError(405, `Stream has ended for request '${req.baseUrl}${req.path}'.`));
           } else {
             return next(statusError(404, 'Request for a grain that lies beyond those currently available.'));
           }

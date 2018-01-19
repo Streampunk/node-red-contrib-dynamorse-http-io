@@ -162,7 +162,7 @@ module.exports = function (RED) {
     this.done(() => {
       node.log('Closing the app and/or ending the stream!');
 
-      if (server) setTimeout(() => {
+      if (server) {
         if (streamDetails) {
           for ( let [,s] of streamDetails) {
             clearInterval(s.clearDown);
@@ -170,10 +170,13 @@ module.exports = function (RED) {
             s.ended = true;
           }
         }
-        server.close(() => {
-          node.warn('Closed server.');
-        });
-      }, 0);
+        setTimeout(() => {
+          // console.log('>>> About to close server.');
+          server.close(() => {
+            node.warn('Closed server.');
+          });
+        }, 500); // Allow any new requests to get an ended message
+      }
     });
   }
   util.inherits(CableOut, redioactive.Spout);

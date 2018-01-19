@@ -141,7 +141,6 @@ var recvMsg = function (t, params, msgObj, onEnd) {
     break;
   case 'receive spout':
     TestUtil.checkGrain(t, msgObj.receive);
-    console.log(msgObj.receive.flow_id, params.seqTest);
     t.deepEqual(msgObj.receive,
       params.seqTest[msgObj.receive.flow_id][params.spoutCount++ / 2|0],
       `funnel and spout objects for index ${params.spoutCount} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
