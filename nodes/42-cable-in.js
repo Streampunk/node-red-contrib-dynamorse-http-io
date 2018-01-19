@@ -75,6 +75,7 @@ module.exports = function (RED) {
                 if (typeof cable !== 'object' || typeof cable.backPressure !== 'string') {
                   return reject(new Error('Received a result that does not look like a cable.'));
                 }
+                // console.log(JSON.stringify(cable, null, 2));
                 fulfil(cable);
               });
             });

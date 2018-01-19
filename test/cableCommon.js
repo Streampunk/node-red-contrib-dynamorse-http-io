@@ -135,15 +135,20 @@ var recvMsg = function (t, params, msgObj, onEnd) {
   // t.comment(`Message: '${msgType}'`);
   switch (msgType) {
   case 'push splicer':
-    if (!params.seqTest[msgObj.push.flow_id])
+    if (!params.seqTest[msgObj.push.flow_id]) {
       params.seqTest[msgObj.push.flow_id] = [];
+      params.spoutCount[msgObj.push.flow_id] = 0;
+    }
     params.seqTest[msgObj.push.flow_id].push(msgObj.push);
+    console.log('>>>', Object.keys(params.seqTest).map(k =>
+      params.seqTest[k].map(x => x.ptpOriginTimestamp)));
     break;
   case 'receive spout':
     TestUtil.checkGrain(t, msgObj.receive);
+    console.log('<<<', msgObj.receive.flow_id, msgObj.receive.ptpOriginTimestamp);
     t.deepEqual(msgObj.receive,
-      params.seqTest[msgObj.receive.flow_id][params.spoutCount++ / 2|0],
-      `funnel and spout objects for index ${params.spoutCount} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
+      params.seqTest[msgObj.receive.flow_id][params.spoutCount[msgObj.receive.flow_id]++],
+      `funnel and spout objects for index ${params.spoutCount[msgObj.receive.flow_id]} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
     break;
   case 'found srcID srcType cable sender':
     // t.comment(`*** FOUND sender *** ${JSON.stringify(msgObj.found)}.`);
@@ -156,8 +161,10 @@ var recvMsg = function (t, params, msgObj, onEnd) {
       'cable descriptions at sender and spout match.');
     break;
   case 'end spout':
-    t.equal(params.spoutCount, params.numPushes * 2,
-      `number of receives at spout is ${params.spoutCount}.`);
+    Object.keys(params.spoutCount).forEach(k => {
+      t.equal(params.spoutCount[k], params.numPushes,
+        `number of receives at spout is for flow ${k} is ${params.spoutCount[k]}.`);
+    });
     return setTimeout(onEnd, 1000);
   default:
     t.comment(`Not handling ${msgType}: ${JSON.stringify(msgObj)}`);
