@@ -55,4 +55,6 @@ for ( let t = 2 ; t <= 2 ; t++ ) { // FIXME expand to more threads - see note be
    for every grain delivered. However, the actual behaviour of the software is
    (anicdotally) OK. Something is up with the realiable delivery of web socket
    messages but it was not possible to track that down in the time available.
+
+   This behaviour was not apparrent on Windows, only Linux and MacOs.
 */

@@ -19,9 +19,19 @@ const http = require('http');
 const https = require('https');
 const lookup = require('util').promisify(require('dns').lookup);
 const url = require('url');
-const { pullStream } = require('../util/ArachnidIn.js');
+const { pullStream, pushStream } = require('../util/ArachnidIn.js');
+const express = require('express');
+const getBody = require('raw-body');
+const fs = require('fs');
 
 const nop = () => {};
+const streamTypes = [ 'video', 'audio', 'anc', 'event' ];
+
+var statusError = (status, message) => {
+  let e = new Error(message);
+  e.status = status;
+  return e;
+};
 
 module.exports = function (RED) {
   function CableIn (config) {
@@ -41,7 +51,113 @@ module.exports = function (RED) {
     let server = null;
 
     if (config.mode === 'push') {
-      // TODO
+      let app = express();
+      let router = express.Router();
+      app.use(router.path, router);
+      let cable = null;
+      let streams = new Map;
+
+      let allClosedCheck = () => {
+        if (streams.every(s => s.endState.ended === true)) {
+          server.close(() => {
+            node.warn('Closing server.');
+          });
+        }
+      };
+
+      router.put(config.path + '/cable.json', (req, res, next) => {
+        getBody(req, {
+          length: req.headers['content-length'],
+          limit: '10mb',
+          encoding: true })
+          .then(data => {
+            cable = JSON.parse(data);
+            streamTypes.forEach(type => {
+              if (Array.isArray(cable[type])) {
+                for ( let y = 0 ; y < cable[type].length ; y++ ) {
+                  let cableRouter = express.Router();
+                  let wire = cable[type][y];
+                  wire.gen = () => {
+                    node.warn(`Calling push generator for stream ${wire.flowID} before registration.`);
+                  };
+                  wire.endState = { ended : false, endMark : null };
+                  wire.generating = false;
+                  wire.generator = fn => {
+                    wire.gen = (push, next) => {
+                      if (!wire.generating) {
+                        wire.generating = true;
+                        fn(push, () => {
+                          wire.generating = false;
+                          next();
+                        });
+                      }
+                    };
+                  };
+                  wire.paths = [ wire.flow_id, wire.name, `${type}_${y}`];
+
+                  router.use(wire.paths, cableRouter);
+                  pushStream(cableRouter, config, wire.endState, node,
+                    wire.generator, wire.tags, allClosedCheck);
+                  streams.set(wire.flowID, wire);
+                }
+              }
+            });
+            node.generator((push, next) => {
+              for ( let [,s] of streams ) {
+                s.gen(s.pushFn(push), s.nextFn(next));
+              }
+            });
+            res.json({});
+          })
+          .catch(e => {
+            next(statusError(400, `Unable to process posted cable.json: ${e}.`));
+          });
+      });
+
+      app.use((err, req, res, next) => { // Have to pass in next for express to work
+        node.warn(err);
+        if (err.status) {
+          res.status(err.status).json({
+            code: err.status,
+            error: (err.message) ? err.message : 'Internal server error. No message available.',
+            debug: (err.stack) ? err.stack : 'No stack available.'
+          });
+        } else {
+          res.status(500).json({
+            code: 500,
+            error: (err.message) ? err.message : 'Internal server error. No message available.',
+            debug: (err.stack) ? err.stack : 'No stack available.'
+          });
+        }
+        if (next === false) next();
+      });
+
+      app.use((req, res, next) => { // Have to pass in next for express to work
+        this.log(`Fell through express. Request ${req.path} is unhandled.`);
+        res.status(404).json({
+          code : 404,
+          error : `Could not find the requested resource '${req.path}'.`,
+          debug : req.path
+        });
+        if (next == false) next();
+      });
+
+      let options = (config.protocol === 'HTTP') ? {} : {
+        key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
+        cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
+      };
+      server = ((config.protocol === 'HTTP') ?
+        protocol.createServer(app) : protocol.createServer(options, app))
+        .listen(config.port, err => {
+          if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
+        });
+      server.on('listening', () => {
+        node.warn(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
+      });
+      server.on('error', node.warn);
+
+      // TODO allocate push streams to sub resources
+
     } else { // not push module => pull mode
       lookup(fullURL.hostname)
         .then(({address}) => {
@@ -88,7 +204,7 @@ module.exports = function (RED) {
           let generators = [];
           delete firstCable.id;
           node.makeCable(firstCable);
-          [ 'video', 'audio', 'anc', 'event' ].forEach(type => {
+          streamTypes.forEach(type => {
             if (!firstCable[type]) return;
             for ( let x = 0 ; x < firstCable[type].length ; x++ ) {
               let wire = firstCable[type][x];

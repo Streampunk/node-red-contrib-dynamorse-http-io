@@ -13,40 +13,41 @@
   limitations under the License.
 */
 
-const TestUtil = require('dynamorse-test');
+/* const TestUtil = require('dynamorse-test');
 const cableCommon = require('./cableCommon.js');
 
-TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS pull simplest case 40ms', {
+TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS push simplest case 40ms', {
   numPushes: 10,
   timeout: 40,
   parallel: 1,
-  mode: 'pull',
+  mode: 'push',
   protocol: 'HTTPS',
   spoutCount: {},
   seqTest: {},
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS pull 100 as fast as', {
+TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS pushURL 100 as fast as', {
   numPushes: 100,
   timeout: 0,
   parallel: 1,
-  mode: 'pull',
+  mode: 'push',
   protocol: 'HTTPS',
   spoutCount: {},
   seqTest: {},
   flowTimeout: 10000
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-for ( let t = 2 ; t <= 2 ; t++ ) { // FIXME - see comment in cableGETSpec.js
-  TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTPS pull ${t} threads`, {
+for ( let t = 2 ; t <= 2 ; t++ ) {
+  TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTPS push ${t} threads`, {
     numPushes: 10,
     timeout: 40,
     parallel: t,
-    mode: 'pull',
+    mode: 'push',
     protocol: 'HTTPS',
     spoutCount: {},
     seqTest: {},
     flowTimeout: 10000
   }, cableCommon.cableGraph, cableCommon.recvMsg);
 }
+*/
