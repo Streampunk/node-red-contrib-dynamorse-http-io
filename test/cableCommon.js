@@ -140,13 +140,13 @@ var recvMsg = function (t, params, msgObj, onEnd) {
       params.spoutCount[msgObj.push.flow_id] = 0;
     }
     params.seqTest[msgObj.push.flow_id].push(msgObj.push);
-    console.log('>>>', Object.keys(params.seqTest).map(k =>
-      params.seqTest[k].map(x => x.ptpOriginTimestamp)));
+    // console.log('>>>', Object.keys(params.seqTest).map(k =>
+    //   params.seqTest[k].map(x => x.ptpOriginTimestamp)));
     break;
   case 'receive spout':
     TestUtil.checkGrain(t, msgObj.receive);
-    console.log('<<<', params.spoutCount[msgObj.receive.flow_id],
-      msgObj.receive.flow_id, msgObj.receive.ptpOriginTimestamp);
+    // console.log('<<<', params.spoutCount[msgObj.receive.flow_id],
+    //   msgObj.receive.flow_id, msgObj.receive.ptpOriginTimestamp);
     t.deepEqual(msgObj.receive,
       params.seqTest[msgObj.receive.flow_id][params.spoutCount[msgObj.receive.flow_id]++],
       `funnel and spout objects for index ${params.spoutCount[msgObj.receive.flow_id]} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
@@ -168,10 +168,10 @@ var recvMsg = function (t, params, msgObj, onEnd) {
     });
     return setTimeout(onEnd, 1000);
   case 'doneness cable sender':
-    console.log('<<<', 'sender doneness');
+    // console.log('<<<', 'sender doneness');
     break;
   case 'doneness cable receiver':
-    console.log('<<<', msgObj.doneness);
+    // console.log('<<<', msgObj.doneness);
     break;
   default:
     t.comment(`Not handling ${msgType}: ${JSON.stringify(msgObj)}`);

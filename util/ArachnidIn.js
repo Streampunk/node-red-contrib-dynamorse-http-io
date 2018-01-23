@@ -84,13 +84,13 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
     // console.log('QQQ', nextRequest, 'hwm', highWaterMark);
     let nextMin = nextRequest.reduce((a, b) =>
       compareVersions(a, b) <= 0 ? a : b);
-    console.log('>>> flow ', flowID, 'nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
+    // console.log('>>> flow ', flowID, 'nextMin', nextMin, 'grainQueue', Object.keys(grainQueue));
 
     Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
       .sort(compareVersions)
       .forEach(gts => {
         if (!config.regenerate) {
-          console.log('>>> PUSHING', flowID, gts);
+          // console.log('>>> PUSHING', flowID, gts);
           push(null, grainQueue[gts]);
         } else {
           let g = grainQueue[gts];
