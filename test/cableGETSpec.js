@@ -16,7 +16,7 @@
 const TestUtil = require('dynamorse-test');
 const cableCommon = require('./cableCommon.js');
 
-TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP pull simplest case 40ms', {
+/* TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP pull simplest case 40ms', {
   numPushes: 10,
   timeout: 40,
   parallel: 1,
@@ -36,11 +36,11 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP pull 100 as fast as', {
   spoutCount: {},
   seqTest: {},
   flowTimeout: 10000
-}, cableCommon.cableGraph, cableCommon.recvMsg);
+}, cableCommon.cableGraph, cableCommon.recvMsg); */
 
-for ( let t = 2 ; t <= 2 ; t++ ) {
+for ( let t = 3 ; t <= 3 ; t++ ) {
   TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTP pull ${t} threads`, {
-    numPushes: 10,
+    numPushes: 20,
     timeout: 40,
     parallel: t,
     mode: 'pull',

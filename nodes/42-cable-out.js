@@ -170,6 +170,7 @@ module.exports = function (RED) {
             s.ended = true;
           }
         }
+        this.wsMsg.send({ doneness : true });
         setTimeout(() => {
           // console.log('>>> About to close server.');
           server.close(() => {
