@@ -21,6 +21,7 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const { URL } = require('url');
 
 module.exports = function (RED) {
   // let count = 0;
@@ -47,6 +48,8 @@ module.exports = function (RED) {
     let clearDown = null;
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
+    let fullURL = new URL(`${config.pushURL}:${config.port}${config.path}`);
+
     let sendMore = null;
     let sendEnd = null;
     let dnsPromise = null;
@@ -113,7 +116,8 @@ module.exports = function (RED) {
             server.on('error', node.warn);
           }
           if (config.mode === 'push') {
-            ({ sendMore, sendEnd, dnsPromise } = pushStream(config, wire, node, highWaterMark));
+            ({ sendMore, sendEnd, dnsPromise } =
+              pushStream(config, wire, node, highWaterMark, fullURL));
           }
           begin = process.hrtime();
         });
@@ -121,7 +125,7 @@ module.exports = function (RED) {
       nextJob.then(() => {
         grainCache.push({ grain : x,
           nextFn : (config.backpressure === true) ? once(next) : nop });
-        node.wsMsg.send({'push_grain': { ts: Grain.prototype.formatTimestamp(x.ptpOrigin) }});
+        // node.wsMsg.send({'push_grain': { ts: Grain.prototype.formatTimestamp(x.ptpOrigin) }});
         if (grainCache.length > config.cacheSize) {
           grainCache = grainCache.slice(grainCache.length - config.cacheSize);
         }

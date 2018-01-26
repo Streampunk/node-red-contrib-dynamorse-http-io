@@ -18,7 +18,7 @@ const util = require('util');
 const http = require('http');
 const https = require('https');
 const lookup = require('util').promisify(require('dns').lookup);
-const url = require('url');
+const { URL } = require('url');
 const { pullStream, pushStream } = require('../util/ArachnidIn.js');
 const express = require('express');
 const getBody = require('raw-body');
@@ -47,36 +47,39 @@ module.exports = function (RED) {
     let baseTime = (d => [ d / 1000|0, (d % 1000) * 1000000 ])(Date.now());
     // let endState = { ended : false, endMark : null };
     let highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
-    let fullURL = url.parse(`${config.pullURL}:${config.port}${config.path}`);
+    let fullURL = new URL(`${config.pullURL}:${config.port}${config.path}`);
     let server = null;
 
     if (config.mode === 'push') {
       let app = express();
       let router = express.Router();
-      app.use(router.path, router);
+      app.use(config.path, router);
       let cable = null;
       let streams = new Map;
 
       let allClosedCheck = () => {
-        if (streams.every(s => s.endState.ended === true)) {
+        if (Array.from(streams.values()).every(s => s.endState.ended === true)) {
           server.close(() => {
             node.warn('Closing server.');
           });
         }
       };
 
-      router.put(config.path + '/cable.json', (req, res, next) => {
+      router.put('/cable.json', (req, res, next) => {
         getBody(req, {
           length: req.headers['content-length'],
           limit: '10mb',
           encoding: true })
           .then(data => {
-            cable = JSON.parse(data);
+            cable = JSON.parse(data)[0];
+            console.log('>>>', 'Received cable', cable);
+            delete cable.id;
+            node.makeCable(cable);
             streamTypes.forEach(type => {
               if (Array.isArray(cable[type])) {
                 for ( let y = 0 ; y < cable[type].length ; y++ ) {
                   let cableRouter = express.Router();
-                  let wire = cable[type][y];
+                  let wire = Object.assign({}, cable[type][y]);
                   wire.gen = () => {
                     node.warn(`Calling push generator for stream ${wire.flowID} before registration.`);
                   };
@@ -93,18 +96,18 @@ module.exports = function (RED) {
                       }
                     };
                   };
-                  wire.paths = [ wire.flow_id, wire.name, `${type}_${y}`];
+                  wire.paths = [ '/' + wire.flowID, '/' + wire.name, `/${type}_${y}` ];
 
                   router.use(wire.paths, cableRouter);
                   pushStream(cableRouter, config, wire.endState, node,
-                    wire.generator, wire.tags, allClosedCheck);
+                    wire.generator, wire, allClosedCheck);
                   streams.set(wire.flowID, wire);
                 }
               }
             });
             node.generator((push, next) => {
               for ( let [,s] of streams ) {
-                s.gen(s.pushFn(push), s.nextFn(next));
+                s.gen(push, next);
               }
             });
             res.json({});
@@ -155,9 +158,6 @@ module.exports = function (RED) {
         node.warn(`Dynamorse arachnid push ${config.protocol} server listening on port ${config.port}.`);
       });
       server.on('error', node.warn);
-
-      // TODO allocate push streams to sub resources
-
     } else { // not push module => pull mode
       lookup(fullURL.hostname)
         .then(({address}) => {
@@ -175,13 +175,13 @@ module.exports = function (RED) {
               rejectUnauthorized: false,
               hostname: fullURL.hostname,
               port: fullURL.port,
-              path: `${fullURL.path}/cable.json`,
+              path: `${fullURL.pathname}/cable.json`,
               method: 'GET'
             }, res => {
               let cableBuilder = '';
               res.on('error', errorFn);
               if (res.statusCode !== 200) {
-                return reject(new Error(`Unecpected response of ${res.statusCode} to cable request ${fullURL}.`));
+                return reject(new Error(`Unecpected response of ${res.statusCode} to cable request ${fullURL.toString()}.`));
               }
               res.on('data', d => {
                 cableBuilder += d.toString('utf8');

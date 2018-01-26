@@ -19,7 +19,6 @@ const { Grain, PTPMaths : { compareVersions, msOriginTs } } =
 const uuid = require('uuid');
 const http = require('http');
 const https = require('https');
-const url = require('url');
 const lookup = require('util').promisify(require('dns').lookup);
 
 const variation = 1; // Grain timing requests may vary +-1ms
@@ -248,12 +247,11 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
   return { startChecks, clearDown };
 }
 
-function pushStream (config, wire, logger, highWaterMark) {
+function pushStream (config, wire, logger, highWaterMark, fullURL) {
 
   let protocol = (config.protocol === 'HTTP') ? http : https;
   let keepAliveAgent = protocol.Agent({ keepAlive : true });
 
-  let fullURL = url.parse(`${config.pushURL}:${config.port}${config.path}`);
   let activeThreads = 0;
 
   let { packing, contentType, grainDuration } = makeHeaders(wire);
@@ -305,7 +303,7 @@ function pushStream (config, wire, logger, highWaterMark) {
         rejectUnauthorized: false,
         hostname: fullURL.hostname,
         port: fullURL.port,
-        path: `${fullURL.path}/${ts}`,
+        path: `${fullURL.pathname}/${ts}`,
         method: 'PUT',
         headers: {
           'Content-Type': contentType,
@@ -329,6 +327,7 @@ function pushStream (config, wire, logger, highWaterMark) {
 
       let req = protocol.request(options, res => {
         activeThreads--;
+        let message = '';
         if (res.statusCode === 429) {
           setTimeout(() => {
             grainCache.push(gn);
@@ -349,9 +348,15 @@ function pushStream (config, wire, logger, highWaterMark) {
           }
           return logger.warn(`Attempt to push grain below low water mark ${ts}. Clearing older grains.`);
         }
-        res.on('data', () => {});
+        res.setEncoding('utf8');
+        res.on('data', d => {
+          message += d;
+        });
         res.on('end', () => {
           logger.log(`Response ${req.path} has ended with ${grainCache.length} grains remaining.`);
+          if (res.statusCode !== 200) {
+            logger.warn(`When pushing grain to ${fullURL.pathname}/${ts}, received status ${res.statusCode} with message: ${message}`);
+          }
           gn.nextFn();
         });
         res.on('error', e => {
@@ -376,7 +381,7 @@ function pushStream (config, wire, logger, highWaterMark) {
       rejectUnauthorized: false,
       hostname: fullURL.hostname,
       port: fullURL.port,
-      path: `${fullURL.path}/${hwm}/end`,
+      path: `${fullURL.pathname}/${hwm}/end`,
       method: 'PUT',
     }, res => {
       res.on('error', e => {

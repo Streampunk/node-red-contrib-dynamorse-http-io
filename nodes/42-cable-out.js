@@ -21,7 +21,10 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const uuid = require('uuid');
-const { pullStream, once, nop } = require('../util/ArachnidOut.js');
+const { URL } = require('url');
+const { pullStream, pushStream, once, nop } = require('../util/ArachnidOut.js');
+
+const streamTypes = ['video', 'audio', 'anc', 'event'];
 
 module.exports = function (RED) {
   function CableOut (config) {
@@ -38,6 +41,7 @@ module.exports = function (RED) {
       cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
     };
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
+    let fullURL = new URL(`${config.pushURL}:${config.port}${config.path}/`);
     let server = null;
     let cablePromise = null;
     let streamDetails = null;
@@ -46,7 +50,7 @@ module.exports = function (RED) {
       if (!Array.isArray(cable) || cable.length === 0) return;
       let firstCable = cable[0];
       let streams = new Map;
-      ['video', 'audio', 'anc', 'event'].map(type => { // TODO confirm stream names
+      streamTypes.forEach(type => { // TODO confirm stream names
         if (Array.isArray(firstCable[type])) {
           for ( let x = 0 ; x < firstCable[type].length ; x++ ) {
             let wire = firstCable[type][x];
@@ -66,6 +70,28 @@ module.exports = function (RED) {
               pullStream(stream.router, config, () => stream.grainCache, wire,
                 node, () => stream.ended));
             streams.set(wire.flowID, stream);
+          }
+        }
+      });
+      return streams;
+    }
+
+    function setupPushing (cable) {
+      if (!Array.isArray(cable) || cable.length === 0) return;
+      let firstCable = cable[0];
+      let streams = new Map;
+      streamTypes.forEach(type => {
+        if (Array.isArray(firstCable[type])) {
+          for ( let x = 0 ; x < firstCable[type].length ; x++ ) {
+            let wire = Object.assign({}, firstCable[type][x]);
+            wire.highWaterMark = { value : '0:0' };
+            wire.grainCache = [];
+            wire.ended = true;
+            ({ sendMore: wire.sendMore, sendEnd: wire.sendEnd,
+              dnsPromise: wire.dnsPromise } =
+              pushStream(config, wire, node, wire.highWaterMark,
+                new URL(wire.flowID, fullURL)));
+            streams.set(wire.flowID, wire);
           }
         }
       });
@@ -125,8 +151,47 @@ module.exports = function (RED) {
                 node.warn(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
               });
             server.on('error', node.warn);
+          } else { // push mode
+            return new Promise((fulfil, reject) => {
+              let cableJSON = Buffer.from(JSON.stringify(cable), 'utf8');
+              let putCableRequest = n => {
+                let errorFn = e => {
+                  if (n <= 10) {
+                    node.warn(`Attempt ${n} to send cable failed. Retrying in ${n *n * 100} ms. ${e}`);
+                    return setTimeout(() => { putCableRequest(n+1); }, n * n * 100);
+                  } else {
+                    reject(`Failed to PUT cable after ${n} retries: ${e}`);
+                  }
+                };
+                let req = protocol.request({
+                  rejectUnauthorized: false,
+                  hostname: fullURL.hostname,
+                  port: fullURL.port,
+                  path: `${fullURL.pathname}/cable.json`,
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': cableJSON.length
+                  }
+                }, res => {
+                  let message = '';
+                  if (res.statusCode !== 200) {
+                    return node.warn(`PUTing cable description results in an unxpected ${res.statusCode} status: ${message}`);
+                  }
+                  res.on('error', errorFn);
+                  res.setEncoding('utf8');
+                  res.on('data', d => { message += d; });
+                  res.on('end', () => {
+                    streamDetails = setupPushing(cable);
+                    fulfil(cable);
+                  });
+                });
+                req.on('error', errorFn);
+                req.end(cableJSON);
+              };
+              putCableRequest(1);
+            });
           }
-          return cable;
         });
       }
 
@@ -140,10 +205,10 @@ module.exports = function (RED) {
           grain : x,
           nextFn : (config.backpressure === true) ? once(next) : nop
         });
-        node.wsMsg.send({'push_grain': {
+        /* node.wsMsg.send({'push_grain': {
           stream: stream.name,
           ts: Grain.prototype.formatTimestamp(x.ptpOrigin)
-        }});
+        }}); */
         if (stream.grainCache.length > config.cacheSize) {
           stream.grainCache = stream.grainCache.slice(
             stream.grainCache.length - config.cacheSize);
@@ -155,14 +220,22 @@ module.exports = function (RED) {
               (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
           setTimeout(next, diff);
         }
-        stream.startChecks();
+        if (config.mode === 'pull') {
+          stream.startChecks();
+        } else {
+          stream.dnsPromise = stream.dnsPromise
+            .then(() => {
+              console.log('>>> Calling send more for stream', stream.flowID);
+              return stream.sendMore(stream.grainCache); })
+            .then(gc => { stream.grainCache = gc; return gc; });
+        }
       });
     });
 
     this.done(() => {
       node.log('Closing the app and/or ending the stream!');
 
-      if (server) {
+      if (server) { // Pull mode
         if (streamDetails) {
           for ( let [,s] of streamDetails) {
             clearInterval(s.clearDown);
@@ -177,6 +250,11 @@ module.exports = function (RED) {
             node.warn('Closed server.');
           });
         }, 500); // Allow any new requests to get an ended message
+      } else {
+        for ( let [,s] of streamDetails ) {
+          s.ended = true;
+          s.dnsPromise.then(() => { s.sendEnd(s.highWaterMark.value); });
+        }
       }
     });
   }

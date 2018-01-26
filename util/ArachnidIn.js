@@ -16,7 +16,7 @@
 // const uuid = require('uuid');
 const { Grain, Redioactive : { end : redEnd }, PTPMaths : { compareVersions, versionDiffMs } } =
   require('node-red-contrib-dynamorse-core');
-const url = require('url');
+const { URL } = require('url');
 const http = require('http');
 const https = require('https');
 const lookup = require('util').promisify(require('dns').lookup);
@@ -68,7 +68,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
   let nextRequest = startThreads(totalConcurrent);
   let activeThreads =
     [ false, false, false, false, false, false].slice(0, totalConcurrent);
-  let fullURL = url.parse(`${config.pullURL}:${config.port}${config.path}`);
+  let fullURL = new URL(`${config.pullURL}:${config.port}${config.path}`);
 
   const { buffers, bufferIdx } = makeInitialBuffers(totalConcurrent, config.maxBuffer);
   let endCount = 0;
@@ -77,7 +77,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
   const wireIsFn = typeof wireOrMakeWire === 'function';
   let flowID = wireIsFn ? null : wireOrMakeWire.flowID;
   let sourceID = wireIsFn ? null : wireOrMakeWire.sourceID;
-  let basePath = wireIsFn ? fullURL.path : fullURL.path + '/' + flowID;
+  let basePath = wireIsFn ? fullURL.pathname : fullURL.pathname + '/' + flowID;
 
   let pushGrains = (g, push) => {
     grainQueue[g.formatTimestamp(g.ptpOrigin)] = g;
@@ -296,7 +296,7 @@ function pushStream (router, config, endState, logger,
   const { buffers } = makeInitialBuffers(totalConcurrent, config.maxBuffer);
 
   router.put('/:ts', (req, res, next) => {
-    logger.log(`Received request ${req.path}.`);
+    console.log(`>>> Received request ${req.path}.`);
     if (Object.keys(receiveQueue).length >= config.cacheSize) {
       return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
     }
