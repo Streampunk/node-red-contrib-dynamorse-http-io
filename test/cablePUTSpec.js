@@ -27,7 +27,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP push simplest case 40ms
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-/* TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP push 100 as fast as', {
+TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP push 100 as fast as', {
   numPushes: 100,
   timeout: 0,
   parallel: 1,
@@ -38,7 +38,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP push simplest case 40ms
   flowTimeout: 10000
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-for ( let t = 2 ; t <= 2 ; t++ ) {
+for ( let t = 2 ; t <= 2 ; t++ ) { // FIXME one of the cables does not complete
   TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTP push ${t} threads`, {
     numPushes: 20,
     timeout: 40,
@@ -49,4 +49,4 @@ for ( let t = 2 ; t <= 2 ; t++ ) {
     seqTest: {},
     flowTimeout: 10000
   }, cableCommon.cableGraph, cableCommon.recvMsg);
-} */
+}

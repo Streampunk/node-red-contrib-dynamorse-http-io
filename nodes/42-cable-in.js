@@ -72,7 +72,7 @@ module.exports = function (RED) {
           encoding: true })
           .then(data => {
             cable = JSON.parse(data)[0];
-            console.log('>>>', 'Received cable', cable);
+            // console.log('>>>', 'Received cable', cable);
             delete cable.id;
             node.makeCable(cable);
             streamTypes.forEach(type => {

@@ -54,7 +54,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
 
 for ( let t = 2; t <= 6 ; t++ ) {
   TestUtil.nodeRedTest(`Testing HTTP-out to HTTP-in pull ${t} threads`, {
-    numPushes: 10,
+    numPushes: 20,
     timeout: 40,
     parallel: t,
     format: 'video',

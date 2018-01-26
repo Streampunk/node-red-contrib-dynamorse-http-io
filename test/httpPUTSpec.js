@@ -54,7 +54,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in push 100 as fast as', {
 
 for ( let t = 2 ; t <= 6 ; t++ ) {
   TestUtil.nodeRedTest(`Testing HTTP-out to HTTP-in push ${t} threads`, {
-    numPushes: 10,
+    numPushes: 20,
     timeout: 40,
     parallel: t,
     format: 'video',
@@ -64,4 +64,4 @@ for ( let t = 2 ; t <= 6 ; t++ ) {
     seqTest: [],
     flowTimeout: 10000
   }, testCommon.httpGraph, testCommon.recvMsg);
-} 
+}

@@ -13,7 +13,7 @@
   limitations under the License.
 */
 
-/* const TestUtil = require('dynamorse-test');
+const TestUtil = require('dynamorse-test');
 const cableCommon = require('./cableCommon.js');
 
 TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS push simplest case 40ms', {
@@ -27,7 +27,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS push simplest case 40m
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS pushURL 100 as fast as', {
+TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS push 100 as fast as', {
   numPushes: 100,
   timeout: 0,
   parallel: 1,
@@ -38,9 +38,9 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS pushURL 100 as fast as
   flowTimeout: 10000
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-for ( let t = 2 ; t <= 2 ; t++ ) {
+/* or ( let t = 6 ; t <= 6 ; t++ ) {// FIXME one of the cables does not complete
   TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTPS push ${t} threads`, {
-    numPushes: 10,
+    numPushes: 20,
     timeout: 40,
     parallel: t,
     mode: 'push',
@@ -49,5 +49,4 @@ for ( let t = 2 ; t <= 2 ; t++ ) {
     seqTest: {},
     flowTimeout: 10000
   }, cableCommon.cableGraph, cableCommon.recvMsg);
-}
-*/
+} */

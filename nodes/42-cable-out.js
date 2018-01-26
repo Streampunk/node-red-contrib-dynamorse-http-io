@@ -225,7 +225,7 @@ module.exports = function (RED) {
         } else {
           stream.dnsPromise = stream.dnsPromise
             .then(() => {
-              console.log('>>> Calling send more for stream', stream.flowID);
+              // console.log('>>> Calling send more for stream', stream.flowID);
               return stream.sendMore(stream.grainCache); })
             .then(gc => { stream.grainCache = gc; return gc; });
         }

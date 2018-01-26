@@ -296,7 +296,7 @@ function pushStream (router, config, endState, logger,
   const { buffers } = makeInitialBuffers(totalConcurrent, config.maxBuffer);
 
   router.put('/:ts', (req, res, next) => {
-    console.log(`>>> Received request ${req.path}.`);
+    // console.log(`>>> Received request ${req.path}.`);
     if (Object.keys(receiveQueue).length >= config.cacheSize) {
       return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
     }
