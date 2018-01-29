@@ -252,8 +252,7 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
   let protocol = (config.protocol === 'HTTP') ? http : https;
   let keepAliveAgent = protocol.Agent({ keepAlive : true });
 
-  let activeThreads = 0
-  let count = 0;
+  let activeThreads = 0;
 
   let { packing, contentType, grainDuration } = makeHeaders(wire);
   let dnsPromise = lookup(fullURL.hostname)
