@@ -144,7 +144,8 @@ module.exports = function (RED) {
       server.on('error', node.warn);
 
       pushStream(router, config, endState, node, node.generator,
-        makeFlowAndSource, server.close.bind(server));
+        makeFlowAndSource,
+        (pushEnd, closeCb) => { pushEnd(); server.close(closeCb); });
     } else { // config.mode is set to pull
       let pullGenerator = pullStream(config, node, endState, baseTime,
         highWaterMark, makeFlowAndSource);

@@ -253,7 +253,9 @@ module.exports = function (RED) {
       } else {
         for ( let [,s] of streamDetails ) {
           s.ended = true;
-          s.dnsPromise.then(() => { s.sendEnd(s.highWaterMark.value); });
+          s.dnsPromise.then(() => {
+            s.sendEnd(s.highWaterMark.value);
+          });
         }
       }
     });

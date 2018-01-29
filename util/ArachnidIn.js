@@ -166,7 +166,6 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         logger.wsMsg.send({ doneness : { path : req.path } });
         endTimeout = (endTimeout) ? endTimeout :
           setTimeout(() => {
-            logger.log('Pushing redioactive.end.');
             push(null, redEnd);
           }, 200); // TODO smell!
         activeThreads[x] = false;
@@ -354,10 +353,9 @@ function pushStream (router, config, endState, logger,
       let numberToSend = (endState.ended) ? 1 :
         sortedKeys.length - totalConcurrent + 1;
       if (endState.ended && sortedKeys.length === 0) {
-        push(null, redEnd);
-        return serverClose(() => {
-          logger.warn('Closed server.');
-        });
+        return serverClose(
+          () => { push(null, redEnd); },
+          () => { logger.warn('Closed server.'); });
       }
       logger.log(`numberToSend: ${numberToSend} with parallel: ${totalConcurrent}.`);
       sortedKeys.slice(0, (numberToSend >= 0) ? numberToSend : 0)

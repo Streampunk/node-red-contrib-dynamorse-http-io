@@ -149,7 +149,7 @@ var recvMsg = function (t, params, msgObj, onEnd) {
     //   msgObj.receive.flow_id, msgObj.receive.ptpOriginTimestamp);
     t.deepEqual(msgObj.receive,
       params.seqTest[msgObj.receive.flow_id][params.spoutCount[msgObj.receive.flow_id]++],
-      `funnel and spout objects for index ${params.spoutCount[msgObj.receive.flow_id]} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
+      `funnel and spout objects for flow ${msgObj.receive.flow_id}, index ${params.spoutCount[msgObj.receive.flow_id]} are the same for ${msgObj.receive.ptpOriginTimestamp}.`);
     break;
   case 'found srcID srcType cable sender':
     // t.comment(`*** FOUND sender *** ${JSON.stringify(msgObj.found)}.`);

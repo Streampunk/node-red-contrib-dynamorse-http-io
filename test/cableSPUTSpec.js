@@ -38,7 +38,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS push 100 as fast as', 
   flowTimeout: 10000
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-/* or ( let t = 6 ; t <= 6 ; t++ ) {// FIXME one of the cables does not complete
+for ( let t = 2 ; t <= 6 ; t++ ) {
   TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTPS push ${t} threads`, {
     numPushes: 20,
     timeout: 40,
@@ -49,4 +49,4 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS push 100 as fast as', 
     seqTest: {},
     flowTimeout: 10000
   }, cableCommon.cableGraph, cableCommon.recvMsg);
-} */
+}

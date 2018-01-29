@@ -56,12 +56,16 @@ module.exports = function (RED) {
       app.use(config.path, router);
       let cable = null;
       let streams = new Map;
+      let closedCount = 0;
 
-      let allClosedCheck = () => {
-        if (Array.from(streams.values()).every(s => s.endState.ended === true)) {
-          server.close(() => {
-            node.warn('Closing server.');
-          });
+      let allClosedCheck = (pushEnd, closeCb) => {
+        closedCount++;
+        if (Array.from(streams.values()).every(s => s.endState.ended === true) &&
+          (closedCount == streams.size)) {
+          pushEnd();
+          setTimeout(() => {
+            server.close(closeCb);
+          }, 200);
         }
       };
 
