@@ -39,6 +39,7 @@ module.exports = function (RED) {
     let endState = { ended : false, endMark : null };
     let highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
     let server = null; // Allow this.close to close down running servers
+    config.headroom = config.parallel - 1;
 
     function makeFlowAndSource (headers) {
       let contentType = headers['content-type'];

@@ -38,7 +38,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP pull 100 as fast as', {
   flowTimeout: 10000
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-for ( let t = 2 ; t <= 2 ; t++ ) { // FIXME expand to more threads - see note below
+for ( let t = 2 ; t <= 6 ; t++ ) {
   TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTP pull ${t} threads`, {
     numPushes: 20,
     timeout: 40,
@@ -50,11 +50,3 @@ for ( let t = 2 ; t <= 2 ; t++ ) { // FIXME expand to more threads - see note be
     flowTimeout: 10000
   }, cableCommon.cableGraph, cableCommon.recvMsg);
 }
-
-/* When testing with >2 threads, the testing client does not receive a message
-   for every grain delivered. However, the actual behaviour of the software is
-   (anicdotally) OK. Something is up with the realiable delivery of web socket
-   messages but it was not possible to track that down in the time available.
-
-   This behaviour was not apparrent on Windows, only Linux and MacOs.
-*/

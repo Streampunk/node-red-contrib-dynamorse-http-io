@@ -49,6 +49,7 @@ module.exports = function (RED) {
     let highWaterMark = Number.MAX_SAFE_INTEGER + ':0';
     let fullURL = new URL(`${config.pullURL}:${config.port}${config.path}`);
     let server = null;
+    config.headroom = config.parallel - 1;
 
     if (config.mode === 'push') {
       let app = express();
@@ -109,6 +110,7 @@ module.exports = function (RED) {
                 }
               }
             });
+            config.headroom = config.parallel * streams.size;
             node.generator((push, next) => {
               for ( let [,s] of streams ) {
                 s.gen(push, next);
@@ -220,6 +222,7 @@ module.exports = function (RED) {
               }));
             }
           });
+          config.headroom = config.parallel * generators.length;
           return Promise.all(generators);
         })
         .then(generators => {

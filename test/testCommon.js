@@ -122,6 +122,8 @@ var recvMsg = function (t, params, msgObj, onEnd) {
       'cable descriptions at sender and spout match.');
     break;
   case 'end spout':
+    t.equal(params.seqTest.length, params.numPushes,
+      `number of push funnel messages received is ${params.seqTest.length} of ${params.numPushes}.`);
     t.equal(params.spoutCount, params.numPushes,
       `number of receives at spout is ${params.spoutCount}.`);
     return setTimeout(onEnd, 1000);

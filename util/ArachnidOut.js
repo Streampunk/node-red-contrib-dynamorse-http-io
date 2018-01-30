@@ -157,6 +157,8 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
       t: t,
       conc: conc
     };
+    req.on('error', logger.warn);
+    res.on('error', logger.warn);
 
     return startChecks(startID);
   });

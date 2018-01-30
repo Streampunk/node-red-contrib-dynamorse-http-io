@@ -38,7 +38,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTPS pull 100 as fast as', 
   flowTimeout: 10000
 }, cableCommon.cableGraph, cableCommon.recvMsg);
 
-for ( let t = 2 ; t <= 2 ; t++ ) { // FIXME - see comment in cableGETSpec.js
+for ( let t = 2 ; t <= 6 ; t++ ) { 
   TestUtil.nodeRedTest(`Testing Cable-out to Cable-in HTTPS pull ${t} threads`, {
     numPushes: 10,
     timeout: 40,

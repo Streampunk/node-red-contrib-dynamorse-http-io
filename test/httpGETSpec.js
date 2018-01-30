@@ -52,7 +52,7 @@ TestUtil.nodeRedTest('Testing HTTP-out to HTTP-in pull 100 as fast as', {
   flowTimeout: 10000
 }, testCommon.httpGraph, testCommon.recvMsg);
 
-for ( let t = 2; t <= 6 ; t++ ) {
+for ( let t = 2 ; t <= 6 ; t++ ) {
   TestUtil.nodeRedTest(`Testing HTTP-out to HTTP-in pull ${t} threads`, {
     numPushes: 20,
     timeout: 40,

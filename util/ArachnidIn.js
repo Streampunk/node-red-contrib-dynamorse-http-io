@@ -70,7 +70,8 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
     [ false, false, false, false, false, false].slice(0, totalConcurrent);
   let fullURL = new URL(`${config.pullURL}:${config.port}${config.path}`);
 
-  const { buffers, bufferIdx } = makeInitialBuffers(totalConcurrent, config.maxBuffer);
+  const { buffers, bufferIdx } =
+    makeInitialBuffers(totalConcurrent, config.maxBuffer + config.headroom);
   let endCount = 0;
   let endTimeout = null;
 
@@ -90,7 +91,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       .sort(compareVersions)
       .forEach(gts => {
         if (!config.regenerate) {
-          // console.log('>>> PUSHING', flowID, gts);
+          // console.log('>>> HTTP GOT PUSHING', rcvCount++, gts);
           push(null, grainQueue[gts]);
         } else {
           let g = grainQueue[gts];
@@ -109,6 +110,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         highWaterMark = gts;
       });
     if (endState.ended && activeThreads.every(a => a === false)) {
+      console.log('<<< Red end when collecting grains.');
       push(null, redEnd); // TODO wait for all streams to end?
     }
   };
@@ -164,10 +166,12 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       if (res.statusCode === 405) {
         logger.warn(`Source stream has ended - thread ${x}.`);
         logger.wsMsg.send({ doneness : { path : req.path } });
-        endTimeout = (endTimeout) ? endTimeout :
-          setTimeout(() => {
+        endTimeout = (endTimeout) ? endTimeout : (() => {
+          // console.log('<<< Preparing to send end due to status code 405.');
+          return setTimeout(() => {
+            // console.log('<<< Actually sending end due to status code 405.');
             push(null, redEnd);
-          }, 200); // TODO smell!
+          }, 200); })(); // TODO smell!
         activeThreads[x] = false;
         endState.ended = true;
         return;
@@ -189,6 +193,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
           // console.log(`Data received for ${count} at`, process.hrtime(requestTimer));
         });
         res.on('end', () => {
+          // console.log('>>> HTTP GOT grain ', nextRequest[x], rcvCount++);
           let ptpOrigin = res.headers['arachnid-ptporigin'];
           let ptpSync = res.headers['arachnid-ptpsync'];
           let duration = res.headers['arachnid-grainduration'];
@@ -228,9 +233,10 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       // Check for flow !== null is so that shutdown does not happen too early
       if (flowID !== null && e.message.indexOf('ECONNREFUSED') >= 0) {
         logger.log(`Received connection refused on thread ${x}. Assuming end.`);
-        activeThreads[x] = true; // Don't make another request.
+        activeThreads[x] = true;
         endCount++;
         if (endCount === activeThreads.length) {
+          console.log('<<< Sending end due to error', endCount, activeThreads);
           push(null, redEnd);
         }
         return;
@@ -263,6 +269,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
       }); //, (flows === null) ? 100 : 0);
     } else {
       logger.log('Not responding to generator.');
+      console.log('<<< Not responding to generator.');
     }
   };
 
@@ -292,7 +299,8 @@ function pushStream (router, config, endState, logger,
   let flowID = (wireIsFn) ? null : wireOrMakeWire.flowID;
   let sourceID = (wireIsFn) ? null : wireOrMakeWire.sourceID;
 
-  const { buffers } = makeInitialBuffers(totalConcurrent, config.maxBuffer);
+  const { buffers } =
+    makeInitialBuffers(totalConcurrent, config.maxBuffer + config.headroom);
 
   router.put('/:ts', (req, res, next) => {
     // console.log(`>>> Received request ${req.path}.`);
