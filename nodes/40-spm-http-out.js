@@ -48,7 +48,8 @@ module.exports = function (RED) {
     let clearDown = null;
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
-    let fullURL = new URL(`${config.pushURL}:${config.port}${config.path}`);
+    let fullURL = config.mode === 'push' ?
+      new URL(`${config.pushURL}:${config.port}${config.path}`) : '';
 
     let sendMore = null;
     let sendEnd = null;
