@@ -13,7 +13,6 @@ jobs:
       command: /sbin/init
     steps:
     - checkout
-    - run: rm package-lock.json
     - run: mkdir -p $CIRCLE_ARTIFACTS $CIRCLE_TEST_REPORTS
     - restore_cache:
         keys:
