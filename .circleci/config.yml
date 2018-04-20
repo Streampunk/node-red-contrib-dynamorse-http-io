@@ -26,6 +26,7 @@ jobs:
     - run: npm install node-red-contrib-dynamorse-core --ignore-scripts
     - run: npm install tap-xunit
     - run: npm install node-red
+    - run: npm install nyc
     - run: npm install pm2
     - save_cache:
         key: v1-dep-{{ .Branch }}-{{ epoch }}
@@ -36,13 +37,16 @@ jobs:
     - run: mkdir -p $CIRCLE_ARTIFACTS/node-red
     - run: mkdir -p $CIRCLE_TEST_REPORTS/eslint
     - run: mkdir -p $CIRCLE_TEST_REPORTS/xunit
+    - run: mkdir -p $CIRCLE_ARTIFACTS/nyc
     - run: cd ~/.node-red/node_modules; ln -s ~/Streampunk/node-red-contrib-dynamorse-http-io/node_modules/node-red-contrib-dynamorse-core
     - run: cd ~/.node-red/node_modules; ln -s ~/Streampunk/node-red-contrib-dynamorse-http-io
     - run: echo 'export PATH="~/Streampunk/node-red-contrib-dynamorse-http-io/node_modules/.bin:$PATH"' >> $BASH_ENV
-    - run: pm2 start node_modules/.bin/node-red -l /tmp/circleci-artifacts/node-red/log.txt -- -u ~/.node-red
-    - run: sleep 2; node ~/.node-red/node_modules/node-red-contrib-dynamorse-core/scripts/dynamorse-setup.js
+    - run: pm2 start node_modules/.bin/nyc -l /tmp/circleci-artifacts/node-red/log.txt -- --all node_modules/.bin/node-red -u ~/.node-red
+    - run: sleep 20; node ~/.node-red/node_modules/node-red-contrib-dynamorse-core/scripts/dynamorse-setup.js
     - run: eslint **/*.js -f junit -o /tmp/circleci-test-results/eslint/eslint.xml
     - run: set -eo pipefail && npm test | tap-xunit > /tmp/circleci-test-results/xunit/results.xml
+    - run: pm2 stop nyc
+    - run: nyc report --reporter=lcov --report-dir=/tmp/circleci-artifacts/nyc
 
     - store_test_results:
         path: /tmp/circleci-test-results
