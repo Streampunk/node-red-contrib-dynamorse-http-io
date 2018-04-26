@@ -132,32 +132,33 @@ module.exports = function (RED) {
           begin = process.hrtime();
         });
 
-      nextJob.then(() => {
-        grainCache.push({ grain : x,
-          nextFn : (config.backpressure === true) ? once(next) : /* istanbul ignore next */ nop });
-        // node.wsMsg.send({'push_grain': { ts: Grain.prototype.formatTimestamp(x.ptpOrigin) }});
-        if (grainCache.length > config.cacheSize) {
-          grainCache = grainCache.slice(grainCache.length - config.cacheSize);
-        }
-        /* istanbul ignore if */
-        if (config.backpressure === false) {
-          grainCount++;
-          let diffTime = process.hrtime(begin);
-          let diff = (grainCount * config.timeout) -
-              (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
-          setTimeout(next, diff);
-        }
-        startChecks();
+      nextJob
+        .then(() => {
+          grainCache.push({ grain : x,
+            nextFn : (config.backpressure === true) ? once(next) : /* istanbul ignore next */ nop });
+          // node.wsMsg.send({'push_grain': { ts: Grain.prototype.formatTimestamp(x.ptpOrigin) }});
+          if (grainCache.length > config.cacheSize) {
+            grainCache = grainCache.slice(grainCache.length - config.cacheSize);
+          }
+          /* istanbul ignore if */
+          if (config.backpressure === false) {
+            grainCount++;
+            let diffTime = process.hrtime(begin);
+            let diff = (grainCount * config.timeout) -
+                (diffTime[0] * 1000 + diffTime[1] / 1000000|0);
+            setTimeout(next, diff);
+          }
+          startChecks();
 
-        if (config.mode === 'push') {
-          dnsPromise = dnsPromise
-            .then(() => sendMore(grainCache))
-            .then(gc => { grainCache = gc; return gc; });
-        } // End push
-      }).catch(err => {
-        /* istanbul ignore next */
-        this.error(`spm-http-out received error: ${err}`);
-      });
+          if (config.mode === 'push') {
+            dnsPromise = dnsPromise
+              .then(() => sendMore(grainCache))
+              .then(gc => { grainCache = gc; return gc; });
+          } // End push
+        })
+        .catch(/* istanbul ignore next */ err => {
+          this.error(`spm-http-out received error: ${err}`);
+        });
     });
 
     this.done(() => {

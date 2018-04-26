@@ -88,8 +88,8 @@ module.exports = function (RED) {
                 for ( let y = 0 ; y < cable[type].length ; y++ ) {
                   let cableRouter = express.Router();
                   let wire = Object.assign({}, cable[type][y]);
+                  /* istanbul ignore next */
                   wire.gen = () => {
-                    /* istanbul ignore next */
                     node.warn(`Calling push generator for stream ${wire.flowID} before registration.`);
                   };
                   wire.endState = { ended : false, endMark : null };
@@ -122,8 +122,7 @@ module.exports = function (RED) {
             });
             res.json({});
           })
-          .catch(e => {
-            /* istanbul ignore next */
+          .catch(/* istanbul ignore next */ e => {
             next(statusError(400, `Unable to process posted cable.json: ${e}.`));
           });
       });
@@ -254,8 +253,7 @@ module.exports = function (RED) {
               g(multiPush(push), next); });
           });
         })
-        .catch(e => {
-          /* istanbul ignore next */
+        .catch(/* istanbul ignore next */ e => {
           node.warn(`cable-in promise rejection: ${e}`);
         });
     } // end this is pull mode

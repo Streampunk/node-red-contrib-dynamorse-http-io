@@ -29,6 +29,7 @@ var statusError = (status, message) => {
   return e;
 };
 
+/* istanbul ignore next */
 const nop = () => {};
 
 function once (fn, context) {

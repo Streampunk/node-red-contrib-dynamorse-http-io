@@ -32,8 +32,8 @@ module.exports = function (RED) {
     redioactive.Spout.call(this, config);
 
     const node = this;
+    /* istanbul ignore next */
     this.on('error', err => {
-      /* istanbul ignore next */
       node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`);
     });
     const protocol = (config.protocol === 'HTTP') ? http : https;
