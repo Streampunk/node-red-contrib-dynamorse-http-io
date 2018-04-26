@@ -83,6 +83,8 @@ var httpGraph = params => {
     id: funnelGrainID,
     numPushes: params.numPushes,
     format: params.format,
+    packing: params.packing || '420P',
+    bitsPerSample: params.bitsPerSample || 16,
     delay: 10,
     wires: [ [ httpSenderID ] ]
   }));

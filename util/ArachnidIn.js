@@ -27,6 +27,7 @@ const minBufferSize = 10000;
 // TODO calculate this from grain rate
 const maxDrift = 40 * 8;
 
+/* istanbul ignore next */
 var statusError = (status, message) => {
   let e = new Error(message);
   e.status = status;
@@ -90,6 +91,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
     Object.keys(grainQueue).filter(gts => compareVersions(gts, nextMin) <= 0)
       .sort(compareVersions)
       .forEach(gts => {
+        /* istanbul ignore else */
         if (!config.regenerate) {
           // console.log('>>> HTTP GOT PUSHING', rcvCount++, gts);
           push(null, grainQueue[gts]);
@@ -109,6 +111,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         delete grainQueue[gts];
         highWaterMark = gts;
       });
+    /* istanbul ignore if */
     if (endState.ended && activeThreads.every(a => a === false)) {
       console.log('<<< Red end when collecting grains.');
       push(null, redEnd); // TODO wait for all streams to end?
@@ -138,6 +141,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         logger.log(`Being redirected to ${location}.`);
         location = '/' + location;
         let lm = location.match(/.*\/([0-9]+):([0-9]{9})$/);
+        /* istanbul ignore else */
         if (lm && lm.length >= 3) {
           nextRequest[x] = `${lm[1]}:${lm[2]}`;
           return setImmediate(() => { runNext(x, push, next); });
@@ -149,6 +153,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
           return;
         }
       }
+      /* istanbul ignore if */
       if (res.statusCode === 404) {
         logger.warn(`Received not found in thread ${x}, request ${basePath}/${nextRequest[x]} - may be ahead of the game. Retrying.`);
         setTimeout(() => {
@@ -156,6 +161,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         }, 5);
         return;
       }
+      /* istanbul ignore if */
       if (res.statusCode === 410) {
         logger.warn(`BANG! Cache miss when reading end ${basePath}/${nextRequest[x]} on thread ${x}.`);
         // push(`Request for grain ${basePath}/${nextRequest[x]} that has already gone on thread ${x}. Resetting.`);
@@ -176,6 +182,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         endState.ended = true;
         return;
       }
+      /* istanbul ignore else */
       if (res.statusCode === 200) {
         let contentLength = +res.headers['content-length'];
         if (currentBuf.length < contentLength) {
@@ -216,12 +223,14 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
           pushGrains(g, push);
           activeThreads[x] = false;
           bufferIdx[x]++;
+          /* istanbul ignore if */
           if (config.logTime) {
             console.log(`Thread ${x}: Retrieved in ${process.hrtime(requestTimer)[1] / 1000000} ms`);
           }
           next();
         });
       }
+      /* istanbul ignore next */
       res.on('error', e => {
         logger.warn(`Received error during streaming of get response on thread ${x}: ${e}.`);
         push(`Received error during streaming of get response on thread ${x}: ${e}.`);
@@ -235,6 +244,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         logger.log(`Received connection refused on thread ${x}. Assuming end.`);
         activeThreads[x] = true;
         endCount++;
+        /* istanbul ignore if */
         if (endCount === activeThreads.length) {
           console.log('<<< Sending end due to error', endCount, activeThreads);
           push(null, redEnd);
@@ -258,6 +268,7 @@ function pullStream (config, logger, endState, startTime, highWaterMark,
         for ( let i = 0 ; i < activeThreads.length ; i++ ) {
           let drift = versionDiffMs(highWaterMark, nextRequest[i]);
           if (!activeThreads[i]) {
+            /* istanbul ignore else */
             if (drift < maxDrift) {
               runNext.call(this, i, push, next);
               activeThreads[i] = true;
@@ -304,12 +315,15 @@ function pushStream (router, config, endState, logger,
 
   router.put('/:ts', (req, res, next) => {
     // console.log(`>>> Received request ${req.path}.`);
+    /* istanbul ignore if */
     if (Object.keys(receiveQueue).length >= config.cacheSize) {
       return next(statusError(429, `Receive queue is at its limit of ${config.cacheSize} elements.`));
     }
+    /* istanbul ignore if */
     if (Object.keys(receiveQueue).indexOf(req.params.ts) >=0) {
       return next(statusError(409, `Receive queue already contains timestamp ${req.params.ts}.`));
     }
+    /* istanbul ignore if */
     if (lowWaterMark && compareVersions(req.params.ts, lowWaterMark) < 0) {
       return next(statusError(400, `Attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${lowWaterMark}.`));
     }
@@ -345,6 +359,7 @@ function pushStream (router, config, endState, logger,
     endState.ended = true;
     endState.endMark = req.params.hwm;
     logger.wsMsg.send({'end_received': { hwm: endState.endMark }});
+    /* istanbul ignore else */
     if (resolver) resolver();
     resolver = null;
     res.json({
@@ -373,6 +388,7 @@ function pushStream (router, config, endState, logger,
           let buf = receiveQueue[gts].buf;
           let idx = receiveQueue[gts].idx;
           delete receiveQueue[gts];
+          /* istanbul ignore if */
           if (lowWaterMark && compareVersions(req.params.ts, lowWaterMark) < 0) {
             next();
             logger.warn(`Later attempt to send grain with timestamp ${req.params.ts} that is prior to the low water mark of ${lowWaterMark}.`);
@@ -407,6 +423,7 @@ function pushStream (router, config, endState, logger,
             lowWaterMark = gts;
 
             if (endState.ended) {
+              /* istanbul ignore else */
               if (resolver) resolver();
               resolver = null;
             }
@@ -421,6 +438,7 @@ function pushStream (router, config, endState, logger,
           });
         });
       if (count < totalConcurrent) next();
+      /* istanbul ignore else */
       if (resolver === null) {
         return new Promise(f => { resolver = f; });
       } else {

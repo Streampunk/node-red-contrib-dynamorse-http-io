@@ -35,6 +35,7 @@ function once (fn, context) {
   let result;
   let cacheFn = fn;
   let o = () => {
+    /* istanbul ignore else */
     if (fn) {
       result = fn.apply(context || this, arguments);
       fn = null;
@@ -59,7 +60,9 @@ function makeHeaders (wire) {
       `colorimetry=${srcTags.colorimetry}; interlace=${srcTags.interlace}`;
   } else {
     result.contentType = `${srcTags.format}/${result.encodingName}`;
+    /* istanbul ignore else */
     if (srcTags.clockRate) result.contentType += `; rate=${srcTags.clockRate}`;
+    /* istanbul ignore else */
     if (srcTags.channels) result.contentType += `; channels=${srcTags.channels}`;
   }
   result.packing = (srcTags.packing) ? srcTags.packing : 'raw';
@@ -91,6 +94,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
       delete startCache[startID];
       return false;
     } else {
+      /* istanbul ignore else */
       if (grainCache.length < startResponses.length) {
         if (grainCache.length > 0) {
           grainCache.slice(-1)[0].nextFn();
@@ -102,6 +106,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
     }
   }
 
+  /* istanbul ignore next */
   router.get('/', (req, res) => {
     let grainCache = grainCacheFn();
     res.json({
@@ -115,6 +120,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
     });
   });
 
+  /* istanbul ignore next */
   router.get('/stream.json', (req, res) => {
     return res.json(wire);
   });
@@ -122,11 +128,13 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
   router.get('/start/:sid/:conc/:t', (req, res, next) => {
     // console.log('*** RECEIVED START', req.params);
     let startID = req.params.sid;
-    let conc = (req.params.conc) ? +req.params.conc : NaN;
+    let conc = (req.params.conc) ? +req.params.conc : /* istanbul ignore next */ NaN;
+    /* istanbul ignore if */
     if (isNaN(conc) || conc <= 0 || conc > 6) {
       return next(statusError(400, `Number of concurrent threads must be a number between 1 and 6. Recieved ${req.paraks.conc}.`));
     }
-    let t = (req.params.t) ? +req.params.t : NaN;
+    let t = (req.params.t) ? +req.params.t : /* istanbul ignore next */ NaN;
+    /* istanbul ignore if */
     if (isNaN(t) || t <= 0 || t > conc) {
       return next(statusError(400, `Timestamp must be a number between 1 and ${conc}. Received ${req.params.t}.`));
     }
@@ -136,6 +144,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
         responses : new Array(conc)
       };
     }
+    /* istanbul ignore next */
     if (Date.now() - startCache[startID].created > 5000) { // allow for backpressure restart
       startCache[startID].responses.forEach(r => {
         r.next(statusError(408, `For start ID ${startID}, thread ${r.t} of ${r.conc}, redirection is not available.`));
@@ -146,6 +155,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
       };
     }
     let startResponses = startCache[startID].responses;
+    /* istanbul ignore next */
     if (startResponses[t - 1]) {
       let res = startResponses[t - 1];
       res.next(statusError(409, `For start ID ${startID}, thread ${res.t} of ${res.conc}, duplicate request for redirection.`));
@@ -169,6 +179,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
     let nextGrain = grainCache[grainCache.length - 1].nextFn;
     let g = null;
     let tsMatch = req.params.ts.match(/([0-9]+):([0-9]{9})/);
+    /* istanbul ignore else */
     if (tsMatch) {
       let secs = +tsMatch[1]|0;
       let nanos = +tsMatch[2]|0;
@@ -186,6 +197,7 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
         nextGrain = g.nextFn;
         g = g.grain;
       } else {
+        /* istanbul ignore if */
         if (rangeCheck < msOriginTs(grainCache[0].grain)) {
           return next(statusError(410, 'Request for a grain with a timestamp that lies before the available window.'));
         } else {
@@ -209,9 +221,11 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
     res.setHeader('Arachnid-FlowID', uuid.unparse(g.flow_id));
     res.setHeader('Arachnid-SourceID', uuid.unparse(g.source_id));
     res.setHeader('Arachnid-Packing', packing);
+    /* istanbul ignore if */
     if (g.timecode)
       res.setHeader('Arachnid-Timecode',
         Grain.prototype.formatTimecode(g.timecode));
+    /* istanbul ignore else */
     if (g.duration) {
       res.setHeader('Arachnid-GrainDuration',
         Grain.prototype.formatDuration(g.duration));
@@ -221,9 +235,11 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
     res.setHeader('Content-Type', contentType);
     let data = g.buffers[0];
     res.setHeader('Content-Length', data.length);
+    /* istanbul ignore if */
     if (req.method === 'HEAD') return res.end();
 
     res.send(data);
+    /* istanbul ignore else */
     if (endFn() === false) {
       nextGrain();
     }
@@ -232,10 +248,12 @@ function pullStream (router, config, grainCacheFn, wire, logger, endFn) {
   let clearDown = setInterval(() => {
     let toDelete = [];
     let now = Date.now();
+    /* istanbul ignore next */
     Object.keys(startCache).forEach(k => {
       if (now - startCache[k].created > 5000)
         toDelete.push(k);
     });
+    /* istanbul ignore next */
     toDelete.forEach(k => {
       let responses = startCache[k].responses;
       logger.warn(`Deleting start ID ${k} from start cache for ${wire.name} with entries ${responses.map(x => x && x.t)}.`);
@@ -260,6 +278,7 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
   let dnsPromise = lookup(fullURL.hostname)
     .then(({address}) => { fullURL.hostname = address; });
 
+  /* istanbul ignore next */
   function reorderCache(c) {
     let co = {};
     let r = [];
@@ -269,6 +288,7 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
     return r;
   }
 
+  /* istanbul ignore next */
   function clearCacheBefore(c, t) {
     let s = c;
     while (s.length > 0 && compareVersions(
@@ -280,13 +300,16 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
 
   let sendMore = (grainCache) => {
     let newThreadCount = config.parallel - activeThreads;
+    /* istanbul ignore next */
     newThreadCount = (newThreadCount < 0) ? 0 : newThreadCount;
     logger.wsMsg.send({'send_more': { grainCacheLen: grainCache.length,
       activeThreads: activeThreads, newThreadCount: newThreadCount }});
     let [ left, right ] = grainCache.length >= newThreadCount ?
       [grainCache.slice(0, newThreadCount), grainCache.slice(newThreadCount)] :
       [[], grainCache];
+    /* istanbul ignore else */
     if (grainCache.length < newThreadCount) {
+      /* istanbul ignore else */
       if (grainCache.length > 0) {
         grainCache[0].nextFn();
         grainCache[0].nextFn.reset();
@@ -299,7 +322,7 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
       let g = gn.grain;
       let ts = Grain.prototype.formatTimestamp(g.ptpOrigin);
       highWaterMark.value =
-        (compareVersions(ts, highWaterMark.value) > 0) ? ts : highWaterMark.value;
+        (compareVersions(ts, highWaterMark.value) > 0) ? ts : /* istanbul ignore next */ highWaterMark.value;
       let options = {
         agent: keepAliveAgent,
         rejectUnauthorized: false,
@@ -317,12 +340,14 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
           'Arachnid-Packing': packing,
           'Arachnid-GrainDuration': g.duration ?
             Grain.prototype.formatDuration(g.duration) :
-            `${grainDuration[0]}/${grainDuration[1]}`
+            /* istanbul ignore next */ `${grainDuration[0]}/${grainDuration[1]}`
         }
       };
+      /* istanbul ignore if */
       if (g.timecode)
         options.headers['Arachnid-Timecode'] =
           Grain.prototype.formatTimecode(g.timecode);
+      /* istanbul ignore else */
       if (g.duration)
         options.headers['Arachnid-GrainDuration'] =
           Grain.prototype.formatDuration(g.duration);
@@ -330,6 +355,7 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
       let req = protocol.request(options, res => {
         activeThreads--;
         let message = '';
+        /* istanbul ignore if */
         if (res.statusCode === 429) {
           setTimeout(() => {
             grainCache.push(gn);
@@ -338,10 +364,12 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
           }, 5);
           return logger.warn(`Going too fast! Returning grain ${ts} to cache.`);
         }
+        /* istanbul ignore if */
         if (res.statusCode === 409) {
           gn.nextFn();
           return logger.warn(`Sent a duplicate grain ${ts}. Continuing without repeating.`);
         }
+        /* istanbul ignore if */
         if (res.statusCode === 400) {
           let olderCache = grainCache;
           grainCache = clearCacheBefore(grainCache, ts);
@@ -356,11 +384,13 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
         });
         res.on('end', () => {
           logger.log(`Response ${req.path} has ended with ${grainCache.length} grains remaining.`);
+          /* istanbul ignore if */
           if (res.statusCode !== 200) {
             logger.warn(`When pushing grain to ${fullURL.pathname}/${ts}, received status ${res.statusCode} with message: ${message}`);
           }
           gn.nextFn();
         });
+        /* istanbul ignore next */
         res.on('error', e => {
           logger.warn(`Received error when handling push result: ${e}`);
         });
@@ -368,6 +398,7 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
 
       req.end(g.buffers[0]);
 
+      /* istanbul ignore next */
       req.on('error', e => {
         logger.warn(`Received error when making a push grain request: ${e}`);
         activeThreads--;
@@ -386,10 +417,12 @@ function pushStream (config, wire, logger, highWaterMark, fullURL) {
       path: `${fullURL.pathname}/${hwm}/end`,
       method: 'PUT',
     }, res => {
+      /* istanbul ignore next */
       res.on('error', e => {
         logger.warn(`Unexpected error after pushing stream end: ${e}`);
       });
     });
+    /* istanbul ignore next */
     req.on('error', e => {
       logger.warn(`Unexpected error when requesting end of stream: ${e}`);
     });

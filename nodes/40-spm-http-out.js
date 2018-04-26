@@ -30,6 +30,7 @@ module.exports = function (RED) {
     Redioactive.Spout.call(this, config);
     let node = this;
     let wire = null;
+    /* istanbul ignore next */
     this.on('error', err => {
       node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`);
     });
@@ -39,6 +40,7 @@ module.exports = function (RED) {
       cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
     };
     let grainCache = [];
+    /* istanbul ignore next */
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
     let server = null;
     let begin = null;
@@ -46,6 +48,7 @@ module.exports = function (RED) {
     let ended = false;
     let highWaterMark = { value : '0:0' };
     let clearDown = null;
+    /* istanbul ignore next */
     config.pushURL = (config.pushURL.endsWith('/')) ?
       config.pushURL.slice(0, -1) : config.pushURL;
     let fullURL = config.mode === 'push' ?
@@ -56,12 +59,14 @@ module.exports = function (RED) {
     let dnsPromise = null;
 
     let startChecks = () => {
+      /* istanbul ignore if */
       if (config.mode !== 'push') {
         node.warn(`Start checks called before setup and mode is ${config.mode}.`);
       }
     };
 
     this.each((x, next) => {
+      /* istanbul ignore if */
       if (!Grain.isGrain(x)) {
         node.warn(`HTTP out received something that is not a grain: ${x}`);
         return next();
@@ -80,6 +85,7 @@ module.exports = function (RED) {
             ({ clearDown, startChecks } =
               pullStream(router, config, () => grainCache, wire, node, () => ended));
 
+            /* istanbul ignore next */
             app.use((err, req, res, next) => { // Must have four args, even if next not called
               node.warn(err);
               if (err.status) {
@@ -96,9 +102,11 @@ module.exports = function (RED) {
                   debug: (err.stack) ? err.stack : 'No stack available.'
                 });
               }
+              /* istanbul ignore if */
               if (next === false) next(); // NOP to pass linting
             });
 
+            /* istanbul ignore next */
             app.use((req, res, next) => { // Assuming needs three args, even if next not called
               res.status(404).json({
                 code : 404,
@@ -111,6 +119,7 @@ module.exports = function (RED) {
             server = ((config.protocol === 'HTTP') ?
               protocol.createServer(app) : protocol.createServer(options, app))
               .listen(config.port, err => {
+                /* istanbul ignore if */
                 if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
                 node.warn(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
               });
@@ -125,11 +134,12 @@ module.exports = function (RED) {
 
       nextJob.then(() => {
         grainCache.push({ grain : x,
-          nextFn : (config.backpressure === true) ? once(next) : nop });
+          nextFn : (config.backpressure === true) ? once(next) : /* istanbul ignore next */ nop });
         // node.wsMsg.send({'push_grain': { ts: Grain.prototype.formatTimestamp(x.ptpOrigin) }});
         if (grainCache.length > config.cacheSize) {
           grainCache = grainCache.slice(grainCache.length - config.cacheSize);
         }
+        /* istanbul ignore if */
         if (config.backpressure === false) {
           grainCount++;
           let diffTime = process.hrtime(begin);
@@ -145,6 +155,7 @@ module.exports = function (RED) {
             .then(gc => { grainCache = gc; return gc; });
         } // End push
       }).catch(err => {
+        /* istanbul ignore next */
         this.error(`spm-http-out received error: ${err}`);
       });
     });

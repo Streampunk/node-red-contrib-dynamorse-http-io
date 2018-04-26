@@ -27,6 +27,7 @@ const fs = require('fs');
 const nop = () => {};
 const streamTypes = [ 'video', 'audio', 'anc', 'event' ];
 
+/* istanbul ignore next */
 var statusError = (status, message) => {
   let e = new Error(message);
   e.status = status;
@@ -40,8 +41,10 @@ module.exports = function (RED) {
 
     let protocol = (config.protocol === 'HTTP') ? http : https;
     let node = this;
+    /* istanbul ignore next */
     config.pullURL = (config.pullURL.endsWith('/')) ?
       config.pullURL.slice(0, -1) : config.pullURL;
+    /* istanbul ignore next */
     config.path = (config.path.endsWith('/')) ?
       config.path.slice(0, -1) : config.path;
     let baseTime = (d => [ d / 1000|0, (d % 1000) * 1000000 ])(Date.now());
@@ -86,6 +89,7 @@ module.exports = function (RED) {
                   let cableRouter = express.Router();
                   let wire = Object.assign({}, cable[type][y]);
                   wire.gen = () => {
+                    /* istanbul ignore next */
                     node.warn(`Calling push generator for stream ${wire.flowID} before registration.`);
                   };
                   wire.endState = { ended : false, endMark : null };
@@ -119,10 +123,12 @@ module.exports = function (RED) {
             res.json({});
           })
           .catch(e => {
+            /* istanbul ignore next */
             next(statusError(400, `Unable to process posted cable.json: ${e}.`));
           });
       });
 
+      /* istanbul ignore next */
       app.use((err, req, res, next) => { // Have to pass in next for express to work
         node.warn(err);
         if (err.status) {
@@ -141,6 +147,7 @@ module.exports = function (RED) {
         if (next === false) next();
       });
 
+      /* istanbul ignore next */
       app.use((req, res, next) => { // Have to pass in next for express to work
         this.log(`Fell through express. Request ${req.path} is unhandled.`);
         res.status(404).json({
@@ -158,6 +165,7 @@ module.exports = function (RED) {
       server = ((config.protocol === 'HTTP') ?
         protocol.createServer(app) : protocol.createServer(options, app))
         .listen(config.port, err => {
+          /* istanbul ignore if */
           if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
         });
       server.on('listening', () => {
@@ -169,6 +177,7 @@ module.exports = function (RED) {
         .then(({address}) => {
           fullURL.hostname = address;
           let getCableRequest = n => new Promise((fulfil, reject) => {
+            /* istanbul ignore next */
             let errorFn = e => {
               if (n <= 10) {
                 node.warn(`Attempt ${n} to request cable failed. Retrying in ${n *n * 100} ms. ${e}`);
@@ -186,6 +195,7 @@ module.exports = function (RED) {
             }, res => {
               let cableBuilder = '';
               res.on('error', errorFn);
+              /* istanbul ignore if */
               if (res.statusCode !== 200) {
                 return reject(new Error(`Unecpected response of ${res.statusCode} to cable request ${fullURL.toString()}.`));
               }
@@ -194,6 +204,7 @@ module.exports = function (RED) {
               });
               res.on('end', () => {
                 let cable = JSON.parse(cableBuilder);
+                /* istanbul ignore if */
                 if (typeof cable !== 'object' || typeof cable.backPressure !== 'string') {
                   return reject(new Error('Received a result that does not look like a cable.'));
                 }
@@ -230,6 +241,7 @@ module.exports = function (RED) {
           let multiPush = push => (err, x) => {
             // console.log('>>>', endings);
             if (Redioactive.isEnd(x)) {
+              /* istanbul ignore else */
               if (endings.every(y => y.ended)) {
                 push(null, Redioactive.end);
               }
@@ -243,10 +255,12 @@ module.exports = function (RED) {
           });
         })
         .catch(e => {
+          /* istanbul ignore next */
           node.warn(`cable-in promise rejection: ${e}`);
         });
     } // end this is pull mode
 
+    /* istanbul ignore next */
     this.on('close', () => {
       if (server) {
         server.close(() => {

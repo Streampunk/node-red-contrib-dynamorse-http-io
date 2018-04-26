@@ -22,6 +22,7 @@ TestUtil.nodeRedTest('Testing Cable-out to Cable-in HTTP push simplest case 40ms
   parallel: 1,
   mode: 'push',
   protocol: 'HTTP',
+  packing: 'h264',
   spoutCount: {},
   seqTest: {},
   flowTimeout: 10000 // needs to be longer than the time it takes to flow!

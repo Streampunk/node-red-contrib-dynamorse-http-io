@@ -31,8 +31,10 @@ module.exports = function (RED) {
 
     let protocol = (config.protocol === 'HTTP') ? http : https;
     let node = this;
+    /* istanbul ignore next */
     config.pullURL = (config.pullURL.endsWith('/')) ?
       config.pullURL.slice(0, -1) : config.pullURL;
+    /* istanbul ignore next */
     config.path = (config.path.endsWith('/')) ?
       config.path.slice(0, -1) : config.path;
     let baseTime = (d => [ d / 1000|0, (d % 1000) * 1000000 ])(Date.now());
@@ -73,13 +75,15 @@ module.exports = function (RED) {
           tags.blockAlign = 3 * tags.channels;
           break;
         case 'L20':
-          tags.bloclAlign = 5 * tags.channels;
+          tags.blockAlign = ((20 * tags.channels + 7) / 8)>>>0;
           break;
+        /* istanbul ignore next */
         default:
           break;
         }
       }
 
+      /* istanbul ignore else */
       if (headers['arachnid-grainduration']) {
         let durMatch = headers['arachnid-grainduration'].match(/(\d+)\/(\d+)/);
         tags.grainDuration = [ +durMatch[1], +durMatch[2] ];
@@ -89,8 +93,10 @@ module.exports = function (RED) {
       cable[tags.format] = [{ tags : tags }];
       cable.backPressure = `${tags.format}[0]`;
 
+      /* istanbul ignore else */
       if (headers['arachnid-sourceid'] && (config.regenerate === false))
         cable[tags.format][0].sourceID = headers['arachnid-sourceid'];
+      /* istanbul ignore else */
       if (headers['arachnid-flowid'] && (config.regenerate === false))
         cable[tags.format][0].flowID = headers['arachnid-flowid'];
       node.makeCable(cable);
@@ -102,6 +108,7 @@ module.exports = function (RED) {
       let router = express.Router();
       app.use(config.path, router);
 
+      /* istanbul ignore next */
       app.use((err, req, res, next) => { // Have to pass in next for express to work
         node.warn(err);
         if (err.status) {
@@ -120,6 +127,7 @@ module.exports = function (RED) {
         if (next === false) next();
       });
 
+      /* istanbul ignore next */
       app.use((req, res, next) => { // Have to pass in next for express to work
         this.log(`Fell through express. Request ${req.path} is unhandled.`);
         res.status(404).json({
@@ -137,6 +145,7 @@ module.exports = function (RED) {
       server = ((config.protocol === 'HTTP') ?
         protocol.createServer(app) : protocol.createServer(options, app))
         .listen(config.port, err => {
+          /* istanbul ignore if */
           if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
         });
       server.on('listening', () => {
@@ -153,6 +162,7 @@ module.exports = function (RED) {
       pullGenerator(this.generator);
     }
 
+    /* istanbul ignore next */
     this.on('close', () => {
       if (server) {
         server.close(() => {

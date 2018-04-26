@@ -33,6 +33,7 @@ module.exports = function (RED) {
 
     const node = this;
     this.on('error', err => {
+      /* istanbul ignore next */
       node.warn(`Error transporting flow over ${config.protocol} '${config.path}': ${err}`);
     });
     const protocol = (config.protocol === 'HTTP') ? http : https;
@@ -40,6 +41,7 @@ module.exports = function (RED) {
       key : fs.readFileSync(__dirname + '/../certs/dynamorse-key.pem'),
       cert : fs.readFileSync(__dirname + '/../certs/dynamorse-cert.pem')
     };
+    /* istanbul ignore next */
     config.path = (config.path.endsWith('/')) ? config.path.slice(0, -1) : config.path;
     let fullURL = new URL(`${config.pushURL}:${config.port}${config.path}/`);
     let server = null;
@@ -47,6 +49,7 @@ module.exports = function (RED) {
     let streamDetails = null;
 
     function setupSubs (cable, subs) {
+      /* istanbul ignore if */
       if (!Array.isArray(cable) || cable.length === 0) return;
       let firstCable = cable[0];
       let streams = new Map;
@@ -56,6 +59,7 @@ module.exports = function (RED) {
             let wire = firstCable[type][x];
             let stream = Object.assign({ type: type, index: x }, firstCable[type][x]);
             stream.paths = [ `/${type}_${x}`, `/${stream.flowID}` ];
+            /* istanbul ignore else */
             if (stream.name) {
               stream.paths.push(`/${stream.name}`);
             }
@@ -77,6 +81,7 @@ module.exports = function (RED) {
     }
 
     function setupPushing (cable) {
+      /* istanbul ignore if */
       if (!Array.isArray(cable) || cable.length === 0) return;
       let firstCable = cable[0];
       let streams = new Map;
@@ -99,6 +104,7 @@ module.exports = function (RED) {
     }
 
     this.each((x, next) => {
+      /* istanbul ignore if */
       if (!Grain.isGrain(x)) {
         node.warn(`Cable out received something that is not a grain: ${x}`);
         return next();
@@ -116,6 +122,7 @@ module.exports = function (RED) {
               res.json(cable[0]);
             });
 
+            /* istanbul ignore next */
             app.use((err, req, res, next) => { // Must have four args, even if next not called
               node.warn(err);
               if (err.status) {
@@ -135,6 +142,7 @@ module.exports = function (RED) {
               if (next === false) next(); // NOP to pass linting
             });
 
+            /* istanbul ignore next */
             app.use((req, res, next) => { // Assuming needs three args, even if next not called
               res.status(404).json({
                 code : 404,
@@ -147,6 +155,7 @@ module.exports = function (RED) {
             server = ((config.protocol === 'HTTP') ?
               protocol.createServer(app) : protocol.createServer(options, app))
               .listen(config.port, err => {
+                /* istanbul ignore if */
                 if (err) node.error(`Failed to start arachnid pull ${config.protocol} server: ${err}`);
                 node.warn(`Dynamorse arachnid pull ${config.protocol} server listening on port ${config.port}.`);
               });
@@ -155,6 +164,7 @@ module.exports = function (RED) {
             return new Promise((fulfil, reject) => {
               let cableJSON = Buffer.from(JSON.stringify(cable), 'utf8');
               let putCableRequest = n => {
+                /* istanbul ignore next */
                 let errorFn = e => {
                   if (n <= 10) {
                     node.warn(`Attempt ${n} to send cable failed. Retrying in ${n *n * 100} ms. ${e}`);
@@ -175,6 +185,7 @@ module.exports = function (RED) {
                   }
                 }, res => {
                   let message = '';
+                  /* istanbul ignore if */
                   if (res.statusCode !== 200) {
                     return node.warn(`PUTing cable description results in an unxpected ${res.statusCode} status: ${message}`);
                   }
@@ -197,13 +208,14 @@ module.exports = function (RED) {
 
       cablePromise = cablePromise.then(() => {
         let stream = streamDetails.get(uuid.unparse(x.flow_id));
+        /* istanbul ignore if */
         if (!stream) {
           node.warn(`Received grain with flow ID '${uuid.unparse(x.flow_id)}' that has no stream in the cable.`);
           return next();
         }
         stream.grainCache.push({
           grain : x,
-          nextFn : (config.backpressure === true) ? once(next) : nop
+          nextFn : (config.backpressure === true) ? once(next) : /* istanbul ignore next */ nop
         });
         /* node.wsMsg.send({'push_grain': {
           stream: stream.name,
@@ -213,6 +225,7 @@ module.exports = function (RED) {
           stream.grainCache = stream.grainCache.slice(
             stream.grainCache.length - config.cacheSize);
         }
+        /* istanbul ignore if */
         if (config.backpressure === false) {
           stream.grainCount++;
           let diffTime = process.hrtime(stream.begin);
@@ -236,6 +249,7 @@ module.exports = function (RED) {
       node.log('Closing the app and/or ending the stream!');
 
       if (server) { // Pull mode
+        /* istanbul ignore else */
         if (streamDetails) {
           for ( let [,s] of streamDetails) {
             clearInterval(s.clearDown);

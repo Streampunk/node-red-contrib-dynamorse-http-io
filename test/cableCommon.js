@@ -97,6 +97,7 @@ var cableGraph = params => {
     numPushes: params.numPushes,
     name: 'video funnel',
     format: 'video',
+    packing: params.packing || '420P',
     delay: 10,
     wires: [ [ spliceID ] ]
   }));
@@ -106,6 +107,7 @@ var cableGraph = params => {
     numPushes: params.numPushes,
     name: 'audio funnel',
     format: 'audio',
+    bitsPerSample: params.bitsPerSample || 16,
     y: 240,
     wires: [ [ spliceID ]]
   }));
