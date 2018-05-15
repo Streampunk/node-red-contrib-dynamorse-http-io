@@ -1,4 +1,5 @@
 [![CircleCI](https://circleci.com/gh/Streampunk/node-red-contrib-dynamorse-http-io.svg?style=shield&circle-token=:circle-token)](https://circleci.com/gh/Streampunk/node-red-contrib-dynamorse-http-io)
+[![Coverage Status](https://coveralls.io/repos/github/Streampunk/node-red-contrib-dynamorse-http-io/badge.svg?branch=master)](https://coveralls.io/github/Streampunk/node-red-contrib-dynamorse-http-io?branch=master)
 # node-red-contrib-dynamorse-http-io
 
 A set of nodes for IBM's [Node-RED](http://nodered.org) that support http input/output for grains, an implementation of the draft [arachnid](https://github.com/Streampunk/arachnid) protocol. This package is a component of Streampunk Media's [dynamorse](https://github.com/Streampunk/node-red-contrib-dynamorse-core#readme) suite.
