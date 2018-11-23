@@ -169,7 +169,6 @@ module.exports = function (RED) {
           node.warn('Closed server on node close.');
         });
       }
-      this.close();
     });
   }
   util.inherits(SpmHTTPIn, Redioactive.Funnel);

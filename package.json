@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-dynamorse-http-io",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Dynamorse http IO nodes for Node-RED",
   "author": "Streampunk Media Ltd",
   "license": "Apache-2.0",
@@ -8,20 +8,20 @@
     "node-red"
   ],
   "dependencies": {
-    "express": "^4.16.3",
+    "express": "^4.16.4",
     "uuid": "^2.0.1"
   },
   "devDependencies": {
-    "coveralls": "^3.0.1",
-    "dynamorse-test": "^0.2.0",
-    "eslint": "^4.19.1",
-    "tape": "^4.9.0"
+    "coveralls": "^3.0.2",
+    "dynamorse-test": "^0.2.1",
+    "eslint": "^5.9.0",
+    "tape": "^4.9.1"
   },
   "scripts": {
     "test": "tape test/*Spec.js",
-    "lint": "eslint **/*.js",
-    "lint-html": "eslint **/*.js -f html -o ./reports/lint-results.html",
-    "lint-fix": "eslint --fix **/*.js"
+    "lint": "eslint '**/*.js'",
+    "lint-html": "eslint '**/*.js' -f html -o ./reports/lint-results.html",
+    "lint-fix": "eslint --fix '**/*.js'"
   },
   "node-red": {
     "nodes": {
